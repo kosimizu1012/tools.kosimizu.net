@@ -51,14 +51,26 @@
   #hint b{color:var(--fg); display:block; font-size:14px; margin-bottom:6px}
   canvas#view{max-width:100%; max-height:100%; object-fit:contain; border-radius:4px}
 
-  /* 横幅が足りないときは通常のページスクロールに戻す */
+  /* 画面が狭いときは上下に積む。
+     ただしプレビューは画面上部に貼り付けたままにして、
+     その下で操作パネルだけがスクロールするようにする。
+     （全体をスクロールさせると、スライダーを動かしても結果が見えない） */
   @media (max-width: 820px){
     body{height:auto; overflow:auto; display:block}
-    main{display:block; overflow:visible; height:auto}
-    #stage{display:block}
-    #panel{width:auto; overflow:visible; padding-right:0; margin-right:0; margin-top:20px}
-    #drop{min-height:320px}
-    canvas#view{max-height:60vh}
+    main{display:block; overflow:visible; height:auto; padding:0}
+    #stage{
+      display:block;
+      position:sticky; top:0; z-index:5;
+      background:var(--bg); padding:10px 12px 6px;
+      box-shadow:0 6px 14px rgba(0,0,0,.45);
+    }
+    #drop{min-height:0}
+    canvas#view{max-height:34vh}
+    #meta{margin-top:4px}
+    #panel{
+      width:auto; flex:none; overflow:visible;
+      padding:12px; margin:0; max-height:none;
+    }
   }
   canvas#view.checker{
     background-image:
