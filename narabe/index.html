@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>画像並べたらカックイイヤ | Tools | Kosimizu</title>
+<meta name="description" content="ミニキャラの透過PNGを並べて、点線がぷるぷる動くお品書き画像を作ります。ブラウザ内で完結し、画像は送信されません。">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="stylesheet" href="../assets/font.css">
+<style>
+
+  :root{
+    --bg:#15161a; --panel:#1e2027; --line:#33363f; --fg:#e8e9ed; --sub:#9aa0ae;
+    --accent:#7aa2ff; --accent2:#ffd479;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    font-size:13px; line-height:1.6;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  header{padding:14px 20px 10px; border-bottom:1px solid var(--line); flex:0 0 auto}
+  h1{margin:0; font-size:16px}
+  header p{margin:3px 0 0; color:var(--sub); font-size:12px}
+
+  main{display:flex; gap:18px; padding:18px; flex:1 1 auto; min-height:0; overflow:hidden}
+  #stage{flex:1 1 460px; min-width:320px; display:flex; flex-direction:column; min-height:0; gap:10px}
+  #panel{
+    width:330px; flex:0 0 330px; overflow-y:auto; overscroll-behavior:contain;
+    padding-right:6px; margin-right:-6px;
+  }
+  #panel::-webkit-scrollbar{width:10px}
+  #panel::-webkit-scrollbar-thumb{background:#3a3e49; border-radius:5px}
+  #panel::-webkit-scrollbar-track{background:transparent}
+
+  #viewWrap{
+    flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center;
+    background:#101116; border:1px solid var(--line); border-radius:10px; padding:12px;
+  }
+  canvas#view{max-width:100%; max-height:100%; object-fit:contain; border-radius:3px;
+              box-shadow:0 6px 24px rgba(0,0,0,.5)}
+  #meta{color:var(--sub); font-size:11px; min-height:16px; flex:0 0 auto}
+
+  .box{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:13px; margin-bottom:11px}
+  .box h2{margin:0 0 9px; font-size:12px; color:var(--accent); letter-spacing:.05em}
+  .row{margin-bottom:10px}
+  .row:last-child{margin-bottom:0}
+  .lbl{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:2px}
+  .lbl span:last-child{color:var(--accent2); font-variant-numeric:tabular-nums; font-size:12px}
+  .note{color:var(--sub); font-size:11px; margin-top:2px}
+  input[type=range]{width:100%; accent-color:var(--accent); margin:0}
+  select,input[type=number],input[type=text],input[type=color]{
+    width:100%; background:#14151a; color:var(--fg); border:1px solid var(--line);
+    border-radius:6px; padding:6px 8px; font-size:12px; font-family:inherit;
+  }
+  input[type=color]{padding:2px; height:30px}
+  .two{display:flex; gap:8px}
+  .two>*{flex:1}
+  label.ck{display:flex; align-items:center; gap:7px; cursor:pointer}
+  label.ck input{accent-color:var(--accent); margin:0}
+  button{
+    width:100%; padding:8px 11px; border-radius:8px; border:1px solid var(--line);
+    background:#272a33; color:var(--fg); font-size:13px; font-family:inherit; cursor:pointer;
+  }
+  button:hover:not(:disabled){background:#31353f}
+  button:disabled{opacity:.45; cursor:default}
+  button.primary{background:var(--accent); border-color:var(--accent); color:#0d1220; font-weight:600}
+  button.primary:hover:not(:disabled){background:#8fb2ff}
+  #status{margin-top:7px; font-size:11px; color:var(--sub); min-height:16px; text-align:center}
+
+  /* 画像一覧 */
+  #shelf{
+    display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin:4px 0 8px;
+    max-height:210px; overflow-y:auto; align-content:start;
+    padding:6px; border:1px dashed var(--line); border-radius:8px; background:#14151a; min-height:76px;
+  }
+  #shelf.over{border-color:var(--accent); background:#232838}
+  #shelf .empty{grid-column:1/-1; color:var(--sub); font-size:11px; text-align:center;
+                align-self:center; padding:16px 6px}
+  .card{position:relative; height:62px; border:1px solid var(--line); border-radius:6px;
+        overflow:hidden; background:
+          linear-gradient(45deg,#2a2c33 25%,transparent 25%,transparent 75%,#2a2c33 75%),
+          linear-gradient(45deg,#2a2c33 25%,transparent 25%,transparent 75%,#2a2c33 75%);
+        background-size:12px 12px; background-position:0 0,6px 6px; background-color:#1a1b20}
+  .card img{width:100%; height:100%; object-fit:contain; display:block}
+  .card .x{
+    position:absolute; top:2px; right:2px; width:18px; height:18px; padding:0; line-height:1;
+    border-radius:4px; background:rgba(0,0,0,.65); border:none; color:#fff; font-size:12px;
+  }
+  .card .n{position:absolute; left:2px; bottom:2px; font-size:10px; background:rgba(0,0,0,.6);
+           border-radius:3px; padding:0 4px; color:#fff}
+  a.dl{display:none}
+  #warn{background:#4a2b2b; border:1px solid #7d4646; border-radius:8px; padding:10px 12px;
+        margin:0 0 11px; font-size:12px; display:none}
+  #warn.on{display:block}
+
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <h1><a href="../">Tools</a></h1>
+  <p>画像並べたらカックイイヤ ／ ミニキャラを並べてお品書きを作ります</p>
+</header>
+
+<nav class="site-nav">
+  <a href="../">Tools</a>
+  <a href="../puru/">画像動かすゾウ</a>
+  <a href="./" aria-current="page">画像並べたらカックイイヤ</a>
+  <a href="https://kosimizu.net/">Kosimizu</a>
+</nav>
+
+<main>
+  <div id="stage">
+    <div id="viewWrap"><canvas id="view" width="1200" height="675"></canvas></div>
+    <div id="meta"></div>
+  </div>
+
+  <div id="panel">
+    <div id="warn"></div>
+
+    <div class="box">
+      <h2>プリセット</h2>
+      <div class="row">
+        <select id="presetSel"><option value="">— 保存した設定を選ぶ —</option></select>
+      </div>
+      <div class="row two">
+        <button id="presetSave" type="button">現在の設定を保存</button>
+        <button id="presetDel" type="button">削除</button>
+      </div>
+      <div class="row two">
+        <button id="presetExport" type="button">ファイルに書き出し</button>
+        <button id="presetImport" type="button">ファイルから読み込み</button>
+      </div>
+      <input type="file" id="presetFile" hidden accept="application/json,.json">
+      <div class="note" id="presetInfo"></div>
+    </div>
+
+    <div class="box">
+      <h2>画像</h2>
+      <div id="shelf"></div>
+      <div class="two">
+        <button id="addBtn" type="button">画像を追加…</button>
+        <button id="clearBtn" type="button">全部消す</button>
+      </div>
+      <input type="file" id="file" hidden multiple accept="image/png,image/*">
+      <div class="note">背景を抜いた透過PNGを想定しています。枠へのドラッグ＆ドロップ、⌘Vでの貼り付けも可。</div>
+    </div>
+
+    <div class="box">
+      <h2>左のキャラ</h2>
+      <div class="row">
+        <div class="lbl"><span>大きさ</span><span id="v-chSize">380 px</span></div>
+        <input type="range" id="chSize" min="120" max="640" step="5" value="380">
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>横位置</span><span id="v-chX">250</span></div>
+          <input type="range" id="chX" min="0" max="1200" step="5" value="250">
+        </div>
+        <div>
+          <div class="lbl"><span>縦位置</span><span id="v-chY">395</span></div>
+          <input type="range" id="chY" min="0" max="675" step="5" value="395">
+        </div>
+      </div>
+      <div class="note">左は常に1枚目を表示します。並び順はファイル名順です。</div>
+    </div>
+
+    <div class="box">
+      <h2>点線</h2>
+      <div class="row">
+        <div class="lbl"><span>外側の距離</span><span id="v-dOff">16 px</span></div>
+        <input type="range" id="dOff" min="2" max="60" step="1" value="16">
+        <div class="note">キャラの輪郭からどれだけ外を通すか。</div>
+      </div>
+      <div class="row">
+        <div class="lbl"><span>なめらかさ</span><span id="v-dSmooth">4</span></div>
+        <input type="range" id="dSmooth" min="0" max="12" step="1" value="4">
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>線の太さ</span><span id="v-dW">4.0</span></div>
+          <input type="range" id="dW" min="1" max="12" step="0.5" value="4">
+        </div>
+        <div>
+          <div class="lbl"><span>色</span></div>
+          <input type="color" id="dColor" value="#d8232a">
+        </div>
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>線の長さ</span><span id="v-dash">14</span></div>
+          <input type="range" id="dash" min="2" max="40" step="1" value="14">
+        </div>
+        <div>
+          <div class="lbl"><span>すき間</span><span id="v-gap">10</span></div>
+          <input type="range" id="gap" min="2" max="40" step="1" value="10">
+        </div>
+      </div>
+      <div class="row">
+        <div class="lbl"><span>揺れの強さ</span><span id="v-wAmp">2.5 px</span></div>
+        <input type="range" id="wAmp" min="0" max="12" step="0.5" value="2.5">
+      </div>
+      <div class="row">
+        <div class="lbl"><span>揺れの細かさ</span><span id="v-wFreq">10</span></div>
+        <input type="range" id="wFreq" min="3" max="40" step="1" value="10">
+      </div>
+      <div class="row">
+        <div class="lbl"><span>コマ数</span><span id="v-wKeys">2</span></div>
+        <input type="range" id="wKeys" min="2" max="6" step="1" value="2">
+        <div class="note">2＝カクッと切り替わる定番のぷるぷる。</div>
+      </div>
+      <div class="row">
+        <div class="lbl"><span>揺れの速さ</span><span id="v-wHold">150 ms</span></div>
+        <input type="range" id="wHold" min="1" max="10" step="1" value="3">
+        <div class="note">
+          点線が1コマ持つ時間。下の「1コマ」とは別に持たせてあるので、
+          全体をなめらかにしても点線だけはゆっくり揺らせます。
+        </div>
+      </div>
+      <div class="row">
+        <label class="ck"><input type="checkbox" id="ants"> 点線を流す</label>
+      </div>
+    </div>
+
+    <div class="box">
+      <h2>右の枠</h2>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>横位置</span><span id="v-fX">850</span></div>
+          <input type="range" id="fX" min="0" max="1400" step="5" value="850">
+        </div>
+        <div>
+          <div class="lbl"><span>縦位置</span><span id="v-fY">410</span></div>
+          <input type="range" id="fY" min="-100" max="775" step="5" value="410">
+        </div>
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>幅</span><span id="v-fW">700</span></div>
+          <input type="range" id="fW" min="150" max="1200" step="10" value="700">
+        </div>
+        <div>
+          <div class="lbl"><span>高さ</span><span id="v-fH">560</span></div>
+          <input type="range" id="fH" min="150" max="1000" step="10" value="560">
+        </div>
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>傾き</span><span id="v-fRot">-6°</span></div>
+          <input type="range" id="fRot" min="-25" max="25" step="0.5" value="-6">
+        </div>
+        <div>
+          <div class="lbl"><span>角丸</span><span id="v-fRad">6</span></div>
+          <input type="range" id="fRad" min="0" max="60" step="1" value="6">
+        </div>
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>枠の色</span></div>
+          <input type="color" id="fBg" value="#c0392b">
+        </div>
+        <div>
+          <div class="lbl"><span>拡大率</span><span id="v-fZoom">150 %</span></div>
+          <input type="range" id="fZoom" min="60" max="320" step="5" value="150">
+        </div>
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>絵の横位置</span><span id="v-fOX">0</span></div>
+          <input type="range" id="fOX" min="-100" max="100" step="1" value="0">
+        </div>
+        <div>
+          <div class="lbl"><span>絵の縦位置</span><span id="v-fOY">10</span></div>
+          <input type="range" id="fOY" min="-100" max="100" step="1" value="10">
+        </div>
+      </div>
+      <div class="row">
+        <label class="ck"><input type="checkbox" id="fShadow" checked> 影をつける</label>
+      </div>
+    </div>
+
+    <div class="box">
+      <h2>スライド</h2>
+      <div class="row">
+        <div class="lbl"><span>効果</span></div>
+        <select id="slFx">
+          <option value="slide" selected>横に流す</option>
+          <option value="fade">フェード</option>
+          <option value="none">切り替えない</option>
+        </select>
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>表示時間</span><span id="v-slHold">1200 ms</span></div>
+          <input type="range" id="slHold" min="300" max="4000" step="100" value="1200">
+        </div>
+        <div>
+          <div class="lbl"><span>切替時間</span><span id="v-slTrans">700 ms</span></div>
+          <input type="range" id="slTrans" min="100" max="1500" step="50" value="700">
+        </div>
+      </div>
+      <div class="note">画像が1枚のときは切り替えず、点線だけが動きます。</div>
+    </div>
+
+    <div class="box">
+      <h2>文字</h2>
+      <div class="row">
+        <div class="lbl"><span>書体</span></div>
+        <select id="fontSel"></select>
+        <div class="two" style="margin-top:8px">
+          <button id="fontAdd" type="button">フォントを追加…</button>
+          <button id="fontDel" type="button" disabled>削除</button>
+        </div>
+        <input type="file" id="fontFile" hidden accept=".ttf,.otf,.woff,.woff2,.ttc,font/*">
+        <div class="note" id="fontInfo"></div>
+        <div class="note">
+          手持ちのフォントを読み込んで使えます。ファイルはこの端末の中だけに保存され、
+          どこにも送信されません。ブラウザの「Cookieと他のサイトデータ」を消すと消えます。
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:14px">
+        <div class="lbl"><span>タイトル</span></div>
+        <input type="text" id="tTitle" value="今回のご依頼">
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>大きさ</span><span id="v-tSize">52</span></div>
+          <input type="range" id="tSize" min="16" max="110" step="1" value="52">
+        </div>
+        <div>
+          <div class="lbl"><span>色</span></div>
+          <input type="color" id="tColor" value="#d8232a">
+        </div>
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>横位置</span><span id="v-tX">56</span></div>
+          <input type="range" id="tX" min="0" max="900" step="2" value="56">
+        </div>
+        <div>
+          <div class="lbl"><span>縦位置</span><span id="v-tY">78</span></div>
+          <input type="range" id="tY" min="0" max="675" step="2" value="78">
+        </div>
+      </div>
+      <div class="row">
+        <label class="ck"><input type="checkbox" id="tLine" checked> 下線を引く</label>
+      </div>
+
+      <div class="row" style="margin-top:14px">
+        <div class="lbl"><span>ID</span></div>
+        <input type="text" id="iText" value="@piyotto">
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>大きさ</span><span id="v-iSize">34</span></div>
+          <input type="range" id="iSize" min="12" max="80" step="1" value="34">
+        </div>
+        <div>
+          <div class="lbl"><span>色</span></div>
+          <input type="color" id="iColor" value="#d8232a">
+        </div>
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>右からの距離</span><span id="v-iX">40</span></div>
+          <input type="range" id="iX" min="0" max="600" step="2" value="40">
+        </div>
+        <div>
+          <div class="lbl"><span>縦位置</span><span id="v-iY">52</span></div>
+          <input type="range" id="iY" min="0" max="675" step="2" value="52">
+        </div>
+      </div>
+      <div class="row">
+        <label class="ck"><input type="checkbox" id="iTilt" checked> 右の枠と傾きをそろえる</label>
+        <div class="note" id="tiltNote"></div>
+      </div>
+      <div class="note" id="overlapHint"></div>
+    </div>
+
+    <div class="box">
+      <h2>出力</h2>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>1コマ</span><span id="v-fps">50 ms</span></div>
+          <input type="range" id="fps" min="30" max="200" step="10" value="50">
+        </div>
+        <div>
+          <div class="lbl"><span>倍率</span></div>
+          <select id="oScale">
+            <option value="1">100%（1200×675）</option>
+            <option value="0.75" selected>75%（900×506）</option>
+            <option value="0.6">60%（720×405）</option>
+            <option value="0.5">50%（600×338）</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div class="lbl"><span>色数</span></div>
+        <select id="colors">
+          <option value="64">64色</option>
+          <option value="128">128色</option>
+          <option value="255" selected>255色</option>
+        </select>
+      </div>
+      <div class="row"><button class="primary" id="saveGif" type="button">GIFを書き出す</button></div>
+      <div class="row"><button id="savePng" type="button">いまの1コマをPNGで保存</button></div>
+      <div id="status"></div>
+    </div>
+  </div>
+</main>
+
+<a class="dl" id="dl"></a>
+
+<footer class="site-footer">
+  <div class="links">
+    <a href="../">Tools</a>
+    <a href="https://kosimizu.net/">Kosimizu</a>
+    <a href="https://kosimizu.net/privacy.html">Privacy Policy</a>
+  </div>
+  <p>&copy; 2026 Kosimizu. All rights reserved.</p>
+</footer>
+
+<script src="../assets/gif.js"></script>
+<script src="../assets/fontpicker.js"></script>
+<script src="../assets/preset.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

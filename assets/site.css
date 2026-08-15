@@ -1,0 +1,74 @@
+/* =========================================================================
+   tools.kosimizu.net 共通の見た目
+   本体サイト（kosimizu.net）の配色・角丸・書体に合わせています。
+   ========================================================================= */
+:root{
+  --navy:#1a1a2e;
+  --navy2:#16213e;
+  --navy-hover:#2d2d5e;
+  --card:#f4f7fc;
+  --line:#e0e6f0;
+  --text:#333;
+  --text2:#555;
+  --text3:#666;
+  --muted:#7a8aaa;
+  --nav-fg:#cdd5e0;
+  --sans:'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
+}
+*{margin:0; padding:0; box-sizing:border-box}
+body{font-family:var(--sans); color:var(--text); background:#fff}
+
+.site-header{background:var(--navy); color:#fff; padding:34px 20px 26px; text-align:center}
+.site-header h1{font-size:1.9rem; letter-spacing:.08em; margin-bottom:8px}
+.site-header h1 a{color:#fff; text-decoration:none}
+.site-header p{font-size:.9rem; color:#aab4c8; letter-spacing:.04em}
+
+.site-nav{
+  background:var(--navy2); display:flex; justify-content:center;
+  gap:28px; padding:12px 20px; flex-wrap:wrap;
+}
+.site-nav a{
+  color:var(--nav-fg); text-decoration:none; font-size:.86rem;
+  letter-spacing:.04em; transition:color .2s;
+}
+.site-nav a:hover, .site-nav a[aria-current="page"]{color:#fff}
+
+.site-footer{
+  background:var(--navy); color:var(--muted); text-align:center;
+  padding:24px 20px; font-size:.8rem;
+}
+.site-footer a{color:#aab4c8; text-decoration:none}
+.site-footer a:hover{color:#fff}
+.site-footer .links{margin-bottom:8px}
+.site-footer .links a{margin:0 12px}
+
+section{max-width:900px; margin:0 auto; padding:48px 24px}
+section h2{
+  font-size:1.4rem; color:var(--navy); margin-bottom:20px;
+  padding-bottom:9px; border-bottom:2px solid var(--line);
+}
+section p{line-height:1.9; color:var(--text2); font-size:.95rem}
+.divider{background:#f0f4fa}
+
+/* 入口に並べるカード */
+.tools{display:grid; grid-template-columns:1fr 1fr; gap:22px; margin-top:6px}
+.tool-card{
+  background:var(--card); border-radius:10px; padding:26px 24px;
+  display:flex; flex-direction:column; gap:12px;
+}
+.tool-card .icon{font-size:1.9rem}
+.tool-card h3{font-size:1.05rem; color:var(--navy)}
+.tool-card p{font-size:.89rem; line-height:1.8; color:var(--text3); flex:1 1 auto}
+.tool-card .btn{align-self:flex-start}
+.btn{
+  display:inline-block; background:var(--navy); color:#fff; padding:11px 26px;
+  border-radius:6px; text-decoration:none; font-size:.89rem; letter-spacing:.04em;
+  transition:background .2s; border:none; cursor:pointer; font-family:inherit;
+}
+.btn:hover{background:var(--navy-hover)}
+
+@media (max-width:700px){
+  .tools{grid-template-columns:1fr}
+  .site-header h1{font-size:1.55rem}
+  .site-nav{gap:16px}
+}

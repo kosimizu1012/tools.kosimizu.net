@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>画像動かすゾウ | Tools | Kosimizu</title>
+<meta name="description" content="イラストを1枚入れると、微妙にズラしたコマを作って 1→2→1→2 とループするGIFを書き出します。ブラウザ内で完結し、画像は送信されません。">
+<link rel="stylesheet" href="../assets/site.css">
+<style>
+
+  :root{
+    --bg:#15161a; --panel:#1e2027; --line:#33363f; --fg:#e8e9ed; --sub:#9aa0ae;
+    --accent:#7aa2ff; --accent2:#ffd479;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    font-size:13px; line-height:1.6;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  header{padding:18px 22px 12px; border-bottom:1px solid var(--line); flex:0 0 auto}
+  h1{margin:0; font-size:17px; letter-spacing:.02em}
+  header p{margin:4px 0 0; color:var(--sub); font-size:12px}
+
+  /* プレビューは常に画面内に固定し、右ペインだけを独立してスクロールさせる */
+  main{
+    display:flex; gap:20px; padding:20px; align-items:stretch;
+    flex:1 1 auto; min-height:0; overflow:hidden;
+  }
+  #stage{flex:1 1 420px; min-width:320px; display:flex; flex-direction:column; min-height:0}
+  #panel{
+    width:320px; flex:0 0 320px; overflow-y:auto; overscroll-behavior:contain;
+    padding-right:6px; margin-right:-6px;
+  }
+  #panel::-webkit-scrollbar{width:10px}
+  #panel::-webkit-scrollbar-thumb{background:#3a3e49; border-radius:5px}
+  #panel::-webkit-scrollbar-thumb:hover{background:#4a4f5c}
+  #panel::-webkit-scrollbar-track{background:transparent}
+
+  #drop{
+    border:2px dashed var(--line); border-radius:12px; background:var(--panel);
+    flex:1 1 auto; min-height:180px;
+    display:flex; align-items:center; justify-content:center;
+    position:relative; overflow:hidden; padding:14px; cursor:pointer;
+  }
+  #drop.over{border-color:var(--accent); background:#232838}
+  #drop.has{border-style:solid}
+  #hint{color:var(--sub); text-align:center; font-size:12px}
+  #hint b{color:var(--fg); display:block; font-size:14px; margin-bottom:6px}
+  canvas#view{max-width:100%; max-height:100%; object-fit:contain; border-radius:4px}
+
+  /* 横幅が足りないときは通常のページスクロールに戻す */
+  @media (max-width: 820px){
+    body{height:auto; overflow:auto; display:block}
+    main{display:block; overflow:visible; height:auto}
+    #stage{display:block}
+    #panel{width:auto; overflow:visible; padding-right:0; margin-right:0; margin-top:20px}
+    #drop{min-height:320px}
+    canvas#view{max-height:60vh}
+  }
+  canvas#view.checker{
+    background-image:
+      linear-gradient(45deg,#3a3d46 25%,transparent 25%,transparent 75%,#3a3d46 75%),
+      linear-gradient(45deg,#3a3d46 25%,transparent 25%,transparent 75%,#3a3d46 75%);
+    background-size:16px 16px; background-position:0 0,8px 8px; background-color:#2a2c33;
+  }
+  #meta{color:var(--sub); font-size:11px; margin-top:8px; min-height:16px}
+
+  .box{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; margin-bottom:12px}
+  .box h2{margin:0 0 10px; font-size:12px; color:var(--accent); letter-spacing:.06em}
+  .row{margin-bottom:12px}
+  .row:last-child{margin-bottom:0}
+  .lbl{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:3px}
+  .lbl span:last-child{color:var(--accent2); font-variant-numeric:tabular-nums; font-size:12px}
+  .note{color:var(--sub); font-size:11px; margin-top:2px}
+  input[type=range]{width:100%; accent-color:var(--accent); margin:0}
+  select,input[type=number],input[type=color]{
+    width:100%; background:#14151a; color:var(--fg); border:1px solid var(--line);
+    border-radius:6px; padding:6px 8px; font-size:12px; font-family:inherit;
+  }
+  input[type=color]{padding:2px; height:30px}
+  .two{display:flex; gap:8px}
+  .two>*{flex:1}
+  label.ck{display:flex; align-items:center; gap:7px; cursor:pointer; color:var(--fg)}
+  label.ck input{accent-color:var(--accent); margin:0}
+  button{
+    width:100%; padding:9px 12px; border-radius:8px; border:1px solid var(--line);
+    background:#272a33; color:var(--fg); font-size:13px; font-family:inherit; cursor:pointer;
+  }
+  button:hover:not(:disabled){background:#31353f}
+  button:disabled{opacity:.45; cursor:default}
+  button.primary{background:var(--accent); border-color:var(--accent); color:#0d1220; font-weight:600}
+  button.primary:hover:not(:disabled){background:#8fb2ff}
+  #status{margin-top:8px; font-size:11px; color:var(--sub); min-height:16px; text-align:center}
+  #cycle{
+    margin-top:2px; padding:7px 9px; background:#14151a; border:1px solid var(--line);
+    border-radius:6px; font-size:11px; color:var(--sub); font-variant-numeric:tabular-nums;
+  }
+  #cycle b{color:var(--accent2); font-weight:600}
+  #perFrame{display:none; margin-top:8px}
+  #perFrame.on{display:block}
+
+  .swatches{display:flex; gap:5px; margin-top:6px; flex-wrap:wrap}
+  .swatches button{
+    width:24px; height:24px; padding:0; border-radius:5px; flex:0 0 auto;
+    border:1px solid rgba(255,255,255,.18); cursor:pointer;
+  }
+  #bgImageRow.off,#bgTintRow.off,#knockRow.off{display:none}
+  .thumbs{
+    display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin:4px 0 8px;
+    max-height:196px; overflow-y:auto; align-content:start;
+    padding:6px; border:1px dashed var(--line); border-radius:8px;
+    background:#14151a; min-height:76px;
+  }
+  .thumbs.over{border-color:var(--accent); background:#232838}
+  .thumbs .empty{
+    grid-column:1/-1; color:var(--sub); font-size:11px;
+    text-align:center; align-self:center; padding:14px 6px;
+  }
+  .thumbs button{
+    padding:0; height:54px; border-radius:6px; overflow:hidden; background:#0f1014;
+    border:1px solid var(--line); cursor:pointer;
+  }
+  .thumbs button.sel{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent)}
+  .thumbs img{width:100%; height:100%; object-fit:cover; display:block}
+  #bgHint:empty{display:none}
+  #bgHint{color:var(--accent2); margin-top:4px}
+  .fr{display:flex; align-items:center; gap:8px; margin-bottom:5px}
+  .fr label{width:60px; color:var(--sub); font-size:11px; flex:0 0 60px}
+  .fr input{flex:1}
+  a.dl{display:none}
+
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <h1><a href="../">Tools</a></h1>
+  <p>画像動かすゾウ ／ 線がぷるぷる動くGIFを作ります</p>
+</header>
+
+<nav class="site-nav">
+  <a href="../">Tools</a>
+  <a href="./" aria-current="page">画像動かすゾウ</a>
+  <a href="../narabe/">画像並べたらカックイイヤ</a>
+  <a href="https://kosimizu.net/">Kosimizu</a>
+</nav>
+
+<main>
+  <div id="stage">
+    <div id="drop">
+      <div id="hint">
+        <b>ここに画像をドラッグ＆ドロップ</b>
+        クリックで選択／⌘Vで貼り付けも可<br>PNG・JPEG・WebP（透過PNG対応）
+      </div>
+      <canvas id="view" hidden></canvas>
+    </div>
+    <div id="meta"></div>
+    <input type="file" id="file" accept="image/*" hidden>
+  </div>
+
+  <div id="panel">
+    <div class="box">
+      <h2>プリセット</h2>
+      <div class="row">
+        <select id="presetSel"><option value="">— 保存した設定を選ぶ —</option></select>
+      </div>
+      <div class="row two">
+        <button id="presetSave" type="button">現在の設定を保存</button>
+        <button id="presetDel" type="button">削除</button>
+      </div>
+      <div class="row two">
+        <button id="presetExport" type="button">ファイルに書き出し</button>
+        <button id="presetImport" type="button">ファイルから読み込み</button>
+      </div>
+      <input type="file" id="presetFile" hidden accept="application/json,.json">
+      <div class="note" id="presetInfo"></div>
+    </div>
+
+    <div class="box">
+      <h2>ゆらぎ</h2>
+      <div class="row">
+        <div class="lbl"><span>揺れの強さ</span><span id="v-amp">0.80 px</span></div>
+        <input type="range" id="amp" min="0" max="5" step="0.05" value="0.8">
+        <div class="note">平均で何px動かすか。0.5〜1.5pxが自然です。</div>
+      </div>
+      <div class="row">
+        <div class="lbl"><span>揺れの均一さ</span><span id="v-uniform">70 %</span></div>
+        <input type="range" id="uniform" min="0" max="100" step="5" value="70">
+        <div class="note">0%＝場所によって揺れの強さにムラが出ます。上げるほど画面全体が均等に揺れます。</div>
+      </div>
+      <div class="row">
+        <div class="lbl"><span>揺れの細かさ</span><span id="v-grid">5</span></div>
+        <input type="range" id="grid" min="2" max="16" step="1" value="5">
+        <div class="note">小さいほど大きくうねり、大きいほど細かく震えます。</div>
+      </div>
+      <div class="row">
+        <div class="lbl"><span>回転ゆらぎ</span><span id="v-rot">0.30°</span></div>
+        <input type="range" id="rot" min="0" max="2" step="0.05" value="0.3">
+      </div>
+      <div class="row">
+        <div class="lbl"><span>拡縮ゆらぎ</span><span id="v-scl">0.4 %</span></div>
+        <input type="range" id="scl" min="0" max="3" step="0.1" value="0.4">
+      </div>
+      <div class="row">
+        <button id="reseed">揺れかたを作り直す</button>
+      </div>
+    </div>
+
+    <div class="box">
+      <h2>スピード・コマ</h2>
+      <div class="row">
+        <div class="lbl"><span>動きの種類</span></div>
+        <select id="motion">
+          <option value="pingpong" selected>往復（1→2→1→2）</option>
+          <option value="loop">循環（ぐるっと一周）</option>
+        </select>
+        <div class="note">往復は行って戻る動き。循環は同じ方向に流れ続ける動きで、コマ数が多いときになめらかです。</div>
+      </div>
+      <div class="row">
+        <div class="lbl"><span>コマ数</span><span id="v-keys">2</span></div>
+        <input type="range" id="keys" min="2" max="12" step="1" value="2">
+        <div class="note">増やすほど遷移がなめらかになります（2＝カクッと切り替わる定番のぷるぷる）。</div>
+      </div>
+      <div class="row">
+        <div class="lbl"><span>切り替えスピード</span><span id="v-delay">120 ms</span></div>
+        <input type="range" id="delay" min="20" max="600" step="10" value="120">
+        <div class="note">1コマあたりの表示時間。短いほど速く震えます。</div>
+      </div>
+      <div class="row">
+        <label class="ck"><input type="checkbox" id="perFrameOn"> コマごとに表示時間を変える</label>
+        <div id="perFrame"></div>
+        <div class="note">1コマ目だけ長く止める、といった緩急をつけられます。</div>
+      </div>
+      <div class="row">
+        <div id="cycle">—</div>
+      </div>
+      <div class="row">
+        <label class="ck"><input type="checkbox" id="keepOrig"> 1コマ目は元画像のまま</label>
+        <div class="note">オフだと全コマを均等に揺らします（推奨）。</div>
+      </div>
+    </div>
+
+    <div class="box">
+      <h2>出力</h2>
+      <div class="row">
+        <div class="lbl"><span>サイズ（最大辺）</span></div>
+        <select id="size">
+          <option value="0">元のまま</option>
+          <option value="320">320 px</option>
+          <option value="512" selected>512 px</option>
+          <option value="640">640 px</option>
+          <option value="800">800 px</option>
+          <option value="1024">1024 px</option>
+        </select>
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>余白</span></div>
+          <input type="number" id="pad" min="0" max="64" step="2" value="0">
+        </div>
+        <div>
+          <div class="lbl"><span>色数</span></div>
+          <select id="colors">
+            <option value="32">32色</option>
+            <option value="64">64色</option>
+            <option value="128">128色</option>
+            <option value="255" selected>255色</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <label class="ck"><input type="checkbox" id="dither"> ディザをかける</label>
+        <div class="note">グラデが帯状になるとき用。線画ではコマ間がチラつくのでオフ推奨。</div>
+      </div>
+    </div>
+
+    <div class="box">
+      <h2>前景（キャラ画像）</h2>
+      <div class="row">
+        <label class="ck"><input type="checkbox" id="knockout"> 白い背景を透過にする</label>
+        <div class="note">
+          外周とつながった白い部分だけを消します。キャラの内側の白は残ります。
+          白背景のイラストを背景画像の上にのせたいときに使ってください。
+        </div>
+      </div>
+      <div class="row" id="knockRow">
+        <div class="lbl"><span>白と見なす明るさ</span><span id="v-knockT">240</span></div>
+        <input type="range" id="knockT" min="150" max="254" step="1" value="240">
+        <div class="note" id="knockInfo"></div>
+      </div>
+    </div>
+
+    <div class="box">
+      <h2>背景</h2>
+      <div class="row">
+        <select id="bgmode">
+          <option value="white" selected>白</option>
+          <option value="image">背景画像</option>
+          <option value="alpha">透過のまま</option>
+        </select>
+      </div>
+
+      <div class="row" id="bgImageRow">
+        <div class="lbl"><span>背景ライブラリ</span><span id="v-bglib">未読み込み</span></div>
+        <div id="bgGrid" class="thumbs"></div>
+        <button id="bgFolderBtn" type="button">手持ちの画像を追加…</button>
+        <input type="file" id="bgfile" hidden multiple accept="image/*">
+        <div class="note">
+          用意された背景は最初から一覧に並びます。枠へのドラッグ＆ドロップや上のボタンから、
+          手持ちの画像を足すこともできます（追加した画像はこの端末から出ません）。
+        </div>
+        <div class="two" style="margin-top:8px">
+          <select id="bgfit">
+            <option value="cover" selected>覆う（はみ出しは切る）</option>
+            <option value="contain">全体を収める</option>
+            <option value="stretch">引き伸ばす</option>
+            <option value="tile">並べる</option>
+          </select>
+          <button id="bgClear" type="button">選択を解除</button>
+        </div>
+        <div class="note">「全体を収める」「並べる」の隙間は紙の色で埋まります。</div>
+      </div>
+
+      <div class="row" id="bgTintRow">
+        <label class="ck"><input type="checkbox" id="bgTint"> 背景画像の色を変える</label>
+        <div class="note">方眼紙の罫線など、背景の線の色を塗り替えます。</div>
+        <div class="two" style="margin-top:8px">
+          <div>
+            <div class="lbl"><span>線の色</span><span id="v-bgink">#8FC7F0</span></div>
+            <input type="color" id="bgink" value="#8fc7f0">
+          </div>
+          <div>
+            <div class="lbl"><span>紙の色</span><span id="v-bgpaper">#FAFAFA</span></div>
+            <input type="color" id="bgpaper" value="#fafafa">
+          </div>
+        </div>
+        <div class="swatches" id="swatches"></div>
+        <div class="note" id="tintInfo"></div>
+      </div>
+
+      <div class="row">
+        <label class="ck"><input type="checkbox" id="bgWarp" checked> 背景も一緒に揺らす</label>
+        <div class="note">
+          オン（初期値）＝背景ごと画面全体が揺れます。プリセット背景をつける場合はこちら。
+          オフ＝背景は静止したまま、前景だけが動きます（透過PNGのイラスト向け）。
+        </div>
+      </div>
+      <div class="note" id="bgHint"></div>
+    </div>
+
+    <div class="box">
+      <button class="primary" id="save" disabled>GIFを書き出す</button>
+      <div id="status"></div>
+    </div>
+  </div>
+</main>
+
+<a class="dl" id="dl"></a>
+
+<footer class="site-footer">
+  <div class="links">
+    <a href="../">Tools</a>
+    <a href="https://kosimizu.net/">Kosimizu</a>
+    <a href="https://kosimizu.net/privacy.html">Privacy Policy</a>
+  </div>
+  <p>&copy; 2026 Kosimizu. All rights reserved.</p>
+</footer>
+
+<script src="../assets/gif.js"></script>
+<script src="../assets/preset.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
