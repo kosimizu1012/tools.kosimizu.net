@@ -232,44 +232,61 @@ const GIF = (() => {
        opts.alphaIndex  本当に透ける席。無ければ -1
        opts.optimize    コマ間の差分だけを書く（本当の透過とは併用できない）
      --------------------------------------------------------------------- */
-  function encode(w, h, palette, frames, delays, opts){
+  /* パレットに必要なビット数と席数 */
+  function tableBits(len){
+    let bits = 1;
+    while ((1 << bits) < Math.max(2, len)) bits++;
+    return bits > 8 ? 8 : bits;
+  }
+  function writeTable(g, pal, size){
+    for (let i = 0; i < size; i++){
+      const c = pal[i] || [0, 0, 0];
+      g.u8(c[0]); g.u8(c[1]); g.u8(c[2]);
+    }
+  }
+
+  function encode(w, h, palettes, frames, delays, opts){
     const o = opts || {};
     const alphaIndex = o.alphaIndex == null ? -1 : o.alphaIndex;
     const realAlpha = alphaIndex >= 0;
     // 本当の透過が要る場合、同じ席を「前と同じ」には使えないので最適化は切る
     const optimize = !!o.optimize && !realAlpha;
 
-    // 差分用の席をパレットの末尾に1つ確保する
-    const diffIndex = optimize ? palette.length : -1;
-    const need = palette.length + (optimize ? 1 : 0);
-    let bits = 1;
-    while ((1 << bits) < Math.max(2, need)) bits++;
-    if (bits > 8) bits = 8;
-    const tableSize = 1 << bits;
+    // palettes は 1つの配列（全コマ共通）でも、コマごとの配列でも受ける
+    const perFrame = Array.isArray(palettes[0]) && Array.isArray(palettes[0][0]);
+    const palOf = f => perFrame ? palettes[f] : palettes;
+    const first = palOf(0);
 
     const g = new Bytes();
+    const gBits = tableBits(first.length + (optimize ? 1 : 0));
     g.str("GIF89a");
     g.u16(w); g.u16(h);
-    g.u8(0x80 | ((bits - 1) << 4) | (bits - 1));
+    g.u8(0x80 | ((gBits - 1) << 4) | (gBits - 1));
     g.u8(0); g.u8(0);
-    for (let i = 0; i < tableSize; i++){
-      const c = palette[i] || [0, 0, 0];
-      g.u8(c[0]); g.u8(c[1]); g.u8(c[2]);
-    }
+    writeTable(g, first, 1 << gBits);
     // 無限ループ
     g.u8(0x21); g.u8(0xff); g.u8(0x0b);
     g.str("NETSCAPE2.0");
     g.u8(3); g.u8(1); g.u16(0); g.u8(0);
 
-    const minCodeSize = Math.max(2, bits);
     const sub = new Uint8Array(w * h);
-    let prev = null;
+    let prev = null, prevPal = null;
 
     for (let f = 0; f < frames.length; f++){
       const cur = frames[f];
+      const pal = palOf(f);
+      // ローカル色表は「そのコマ限り」で次には引き継がれない。
+      // グローバルと違うパレットを使うコマは、毎コマ色表を持たせる必要がある。
+      const needLCT = pal !== first;
+      // 添字の意味が同じ（＝前のコマと同じパレット）ときだけ差分が取れる
+      const canDiff = pal === prevPal;
+      const bits = tableBits(pal.length + (optimize ? 1 : 0));
+      const diffIndex = optimize ? pal.length : -1;
+      const minCodeSize = Math.max(2, bits);
+
       let x0 = 0, y0 = 0, bw = w, bh = h, useDiff = false;
 
-      if (optimize && prev){
+      if (optimize && prev && canDiff){
         let minX = w, minY = h, maxX = -1, maxY = -1;
         for (let y = 0; y < h; y++){
           const row = y * w;
@@ -308,11 +325,17 @@ const GIF = (() => {
 
       g.u8(0x2c);
       g.u16(x0); g.u16(y0); g.u16(bw); g.u16(bh);
-      g.u8(0);
+      if (needLCT){
+        g.u8(0x80 | (bits - 1));            // このコマ専用の色表
+        writeTable(g, pal, 1 << bits);
+      } else {
+        g.u8(0);
+      }
       g.u8(minCodeSize);
       lzwEncode(g, sub.subarray(0, n), minCodeSize);
 
       prev = cur;
+      prevPal = pal;
     }
     g.u8(0x3b);
     return g.done();

@@ -18,7 +18,7 @@ const els = {};
   "tTitle","tSize","tColor","tX","tY","tLine",
   "iText","iSize","iColor","iX","iY","iTilt","tiltNote","overlapHint",
   "fontSel","fontAdd","fontFile","fontDel","fontInfo",
-  "fps","oScale","colors","saveGif","savePng",
+  "fps","oScale","colors","palMode","saveGif","savePng",
   "presetSel","presetSave","presetDel","presetExport","presetImport","presetFile","presetInfo"
 ].forEach(id => els[id] = document.getElementById(id));
 
@@ -450,7 +450,8 @@ function readParams(){
     tX: +els.tX.value, tY: +els.tY.value, tLine: els.tLine.checked,
     id: els.iText.value, iSize: +els.iSize.value, iColor: els.iColor.value,
     iX: +els.iX.value, iY: +els.iY.value, iTilt: els.iTilt.checked,
-    frameMs: +els.fps.value, scale: +els.oScale.value, colors: +els.colors.value
+    frameMs: +els.fps.value, scale: +els.oScale.value, colors: +els.colors.value,
+    palMode: els.palMode.value
   };
 }
 
@@ -709,37 +710,57 @@ async function buildGif(){
     return ctx.getImageData(0, 0, w, h).data;
   };
 
-  // 1周目：色を集めてパレットを作る。
-  // 全コマを舐める必要はないので、最大12コマを等間隔に選び、
-  // 合計が約6万サンプルに収まる間隔で拾う（メディアンカットは点数に効くため）
+  // どのコマがどの絵柄かでまとめる。
+  // 表示中は「そのスライドだけ」、切り替え中は「2枚が混ざった状態」で色が違うので、
+  // まとまりごとに専用のパレットを作る。GIFはコマごとに色表を持てる。
+  //
+  // 色味の違う絵を1つのパレットで賄うと、どの絵にも色が足りずグラデーションが縞になる。
+  // 実測では全コマ共有で255色中155色しか使えず、
+  // まとまりごとに分けると221色まで使えて誤差が半分以下になった。
+  const groupOf = p.palMode === "shared" ? () => "all" : k => {
+    const st = frameState(k, tl, p);
+    return st.t === 0 ? `s${st.a}` : `t${st.a}-${st.b}`;
+  };
+  const groups = new Map();
+  for (let k = 0; k < tl.total; k++){
+    const gk = groupOf(k);
+    if (!groups.has(gk)) groups.set(gk, []);
+    groups.get(gk).push(k);
+  }
+
   els.status.textContent = "色を調べています…";
   await yieldToUI();
   const TARGET = 60000;
-  const probeCount = Math.min(tl.total, 12);
-  const probes = [];
-  for (let i = 0; i < probeCount; i++) probes.push(Math.round(i * tl.total / probeCount));
-  const stride = Math.max(1, Math.round(w * h * probeCount / TARGET));
-  const samples = [];
-  for (let i = 0; i < probes.length; i++){
-    const d = paint(probes[i]);
-    for (let q = 0; q < w * h; q += stride){
-      const o = q << 2;
-      samples.push([d[o], d[o + 1], d[o + 2]]);
+  const maxColors = Math.min(255, p.colors);
+  const palOfGroup = new Map();
+  let gi = 0;
+  for (const [gk, ks] of groups){
+    // まとまりの中から数コマ選んで色を拾う
+    const probeCount = Math.min(ks.length, 4);
+    const stride = Math.max(1, Math.round(w * h * probeCount / TARGET));
+    const samples = [];
+    for (let i = 0; i < probeCount; i++){
+      const d = paint(ks[Math.round(i * (ks.length - 1) / Math.max(1, probeCount - 1))]);
+      for (let q = 0; q < w * h; q += stride){
+        const o = q << 2;
+        samples.push([d[o], d[o + 1], d[o + 2]]);
+      }
     }
-    els.status.textContent = `色を調べています… ${i + 1}/${probes.length}`;
+    const pal = GIF.paletteFromSamples(samples, maxColors);
+    palOfGroup.set(gk, { pal, match: GIF.makeMatcher(pal) });
+    els.status.textContent = `色を調べています… ${++gi}/${groups.size}`;
     await yieldToUI();
   }
-  const pal = GIF.paletteFromSamples(samples, Math.min(255, p.colors));
-  const match = GIF.makeMatcher(pal);
 
-  // 2周目：描き直して減色する。
+  // 描き直して減色する。
   // 表示中は点線の揺れが変わらない限り絵が同じなので、
   // 「何コマ目か」ではなく「絵の内容」で使い回す。
-  const frames = [];
+  const frames = [], framePals = [];
   const cache = new Map();
   let painted = 0;
   for (let k = 0; k < tl.total; k++){
     const st = frameState(k, tl, p);
+    const { pal, match } = palOfGroup.get(groupOf(k));
     const sig = [st.a, st.b, st.t.toFixed(5),
                  wobblePhase(k, tl, p), p.ants ? k % tl.cycle : 0].join("|");
     let idx = cache.get(sig);
@@ -754,6 +775,7 @@ async function buildGif(){
       }
     }
     frames.push(idx);
+    framePals.push(pal);
   }
   els.status.textContent = `コマを変換しています… ${tl.total}/${tl.total}`;
   await yieldToUI();
@@ -761,8 +783,9 @@ async function buildGif(){
   els.status.textContent = "GIFにまとめています…";
   await yieldToUI();
   const delays = frames.map(() => p.frameMs);
-  const bytes = GIF.encode(w, h, pal, frames, delays, { optimize: true });
-  return { bytes, w, h, count: frames.length, pal: pal.length, drawn: cache.size };
+  const bytes = GIF.encode(w, h, framePals, frames, delays, { optimize: true });
+  return { bytes, w, h, count: frames.length, drawn: cache.size,
+           palettes: palOfGroup.size, pal: maxColors };
 }
 
 els.saveGif.addEventListener("click", async () => {
@@ -778,7 +801,8 @@ els.saveGif.addEventListener("click", async () => {
     setTimeout(() => URL.revokeObjectURL(url), 10000);
     els.status.textContent =
       `完了：${(r.bytes.length / 1024).toFixed(0)} KB`
-      + `（${r.w}×${r.h}、${r.count}コマ／実描画${r.drawn}枚、${r.pal}色）`;
+      + `（${r.w}×${r.h}、${r.count}コマ／実描画${r.drawn}枚、`
+      + `${r.pal}色×${r.palettes}組）`;
   } catch (e){
     console.error(e);
     els.status.textContent = "エラー: " + e.message;

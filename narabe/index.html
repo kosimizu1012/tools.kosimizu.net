@@ -429,6 +429,18 @@
         </select>
         <div class="note">255色がGIFの上限です。これ以上は増やせません。</div>
       </div>
+      <div class="row">
+        <div class="lbl"><span>色の割り当て</span></div>
+        <select id="palMode">
+          <option value="group" selected>画質優先（絵ごとに色を割り当て）</option>
+          <option value="shared">サイズ優先（全コマで色を共有）</option>
+        </select>
+        <div class="note">
+          GIFは256色までですが、コマごとに別の色表を持てます。
+          色味の違う絵を並べるときは画質優先にすると階調が保てます。
+          そのぶんファイルは大きくなります（実測で誤差3割減・サイズ8割増）。
+        </div>
+      </div>
       <div class="row"><button class="primary" id="saveGif" type="button">GIFを書き出す</button></div>
       <div class="row"><button id="savePng" type="button">いまの1コマをPNGで保存</button></div>
       <div id="status"></div>
