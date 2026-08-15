@@ -548,7 +548,9 @@ els.save.addEventListener("click", () => {
 
       // パレットは1コマ目から1回だけ作り、全コマで共有する（コマ間の色ちらつき防止）
       const maxColors = useAlpha ? p.colors - 1 : p.colors;
-      const samples = GIF.collectSamples(uniqueFrames[0].data, w, h, 50000);
+      // 輪郭は間引いて拾い、色をなだらかな階調へ回す
+      const samples = GIF.collectSamples(uniqueFrames[0].data, w, h, 50000,
+                                         { edgeWeight: 0.25 });
       const pal = GIF.paletteFromSamples(samples, maxColors);
       const transIdx = useAlpha ? pal.length : -1;
       const palOut   = useAlpha ? pal.concat([[0, 0, 0]]) : pal;

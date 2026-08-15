@@ -742,13 +742,12 @@ async function buildGif(){
     // まとまりの中から数コマ選んで色を拾う
     const probeCount = Math.min(ks.length, 4);
     const stride = Math.max(1, Math.round(w * h * probeCount / TARGET));
+    // 輪郭は間引いて拾う。段が見えるのはなめらかな面なので、色をそちらへ回す
     const samples = [];
     for (let i = 0; i < probeCount; i++){
       const d = paint(ks[Math.round(i * (ks.length - 1) / Math.max(1, probeCount - 1))]);
-      for (let q = 0; q < w * h; q += stride){
-        const o = q << 2;
-        samples.push([d[o], d[o + 1], d[o + 2]]);
-      }
+      GIF.collectSamples(d, w, h, Math.round(w * h / stride),
+                         { into: samples, edgeWeight: 0.25 });
     }
     const pal = GIF.paletteFromSamples(samples, maxColors);
     palOfGroup.set(gk, { pal, match: GIF.makeMatcher(pal) });
