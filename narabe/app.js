@@ -18,7 +18,7 @@ const els = {};
   "tTitle","tSize","tColor","tX","tY","tLine",
   "iText","iSize","iColor","iX","iY","iTilt","tiltNote","overlapHint",
   "fontSel","fontAdd","fontFile","fontDel","fontInfo",
-  "fps","oScale","colors","palMode","saveGif","savePng",
+  "fps","oScale","colors","palMode","saveGif","saveMp4","mp4Note","savePng",
   "presetSel","presetSave","presetDel","presetExport","presetImport","presetFile","presetInfo"
 ].forEach(id => els[id] = document.getElementById(id));
 
@@ -852,4 +852,65 @@ Presets.init({
     return missing ? "保存時の書体が見つからないため、同梱フォントに戻しました。" : "";
   },
   onApplied: () => { ensureGlyphs().then(rebuildAll); refreshLabels(); }
+});
+
+/* =========================================================================
+   MP4（動画）で書き出す
+
+   GIFと違って256色の制限が無いため、グラデーションの段が出ない。
+   透過は扱えないが、この道具の出力は背景が不透明なので問題にならない。
+   ========================================================================= */
+(async () => {
+  const ok = await MP4.available();
+  if (!ok){
+    els.saveMp4.disabled = true;
+    els.mp4Note.textContent = "このブラウザは動画の書き出しに対応していません。GIFをお使いください。";
+    return;
+  }
+})();
+
+els.saveMp4.addEventListener("click", async () => {
+  if (!slides.length) return;
+  els.saveMp4.disabled = true;
+  els.status.textContent = "動画を作っています…";
+  try {
+    const p = readParams();
+    const tl = timeline(p);
+    const w = Math.round(CANVAS_W * p.scale), h = Math.round(CANVAS_H * p.scale);
+    const [vw, vh] = MP4.evenSize(w, h);
+
+    const cv = document.createElement("canvas");
+    cv.width = vw; cv.height = vh;
+    const ctx = cv.getContext("2d");
+
+    const t0 = performance.now();
+    const r = await MP4.encode({
+      width: w, height: h, count: tl.total,
+      delays: Array.from({ length: tl.total }, () => p.frameMs),
+      draw: k => {
+        ctx.setTransform(p.scale, 0, 0, p.scale, 0, 0);
+        drawFrame(ctx, k, p, tl);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        return cv;
+      },
+      onProgress: (i, n) => { els.status.textContent = `動画を作っています… ${i}/${n}`; }
+    });
+
+    const blob = new Blob([r.bytes], { type: "video/mp4" });
+    const url = URL.createObjectURL(blob);
+    els.dl.href = url;
+    els.dl.download = "narabetara.mp4";
+    els.dl.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+
+    const secs = (tl.total * p.frameMs / 1000).toFixed(1);
+    els.status.textContent =
+      `完了：${(r.bytes.length / 1024).toFixed(0)} KB（${r.width}×${r.height}、`
+      + `${r.frames}コマ、${secs}秒、${((performance.now() - t0) / 1000).toFixed(1)}秒で作成）`;
+  } catch (e){
+    console.error(e);
+    els.status.textContent = "エラー: " + e.message;
+  } finally {
+    els.saveMp4.disabled = false;
+  }
 });

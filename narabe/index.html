@@ -442,6 +442,19 @@
         </div>
       </div>
       <div class="row"><button class="primary" id="saveGif" type="button">GIFを書き出す</button></div>
+      <div class="row">
+        <button id="saveMp4" type="button">MP4（動画）で書き出す</button>
+        <div class="note" id="mp4Note">
+          <b>X（Twitter）に上げるならこちら。</b>
+          Xはアニメーションを必ず動画に変換するため、GIFで上げると
+          「256色に減らす」→「動画に変換」と二重に劣化します。MP4なら減色を通りません。<br>
+          <b>自分のサイトに置くならGIFのほうが忠実です。</b>
+          動画圧縮は細い線や文字をにじませるので、そのまま表示できる場所ではGIFが有利でした
+          （実測：輪郭の誤差 GIF 1.7 に対し MP4 6.0）。<br>
+          埋め込みは <code>&lt;video loop muted autoplay playsinline&gt;</code> を付けてください。
+          透過は動画では扱えません。
+        </div>
+      </div>
       <div class="row"><button id="savePng" type="button">いまの1コマをPNGで保存</button></div>
       <div id="status"></div>
     </div>
@@ -460,6 +473,7 @@
 </footer>
 
 <script src="../assets/gif.js"></script>
+<script src="../assets/mp4.js"></script>
 <script src="../assets/fontpicker.js"></script>
 <script src="../assets/preset.js"></script>
 <script src="app.js"></script>
