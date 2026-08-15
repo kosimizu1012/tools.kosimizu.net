@@ -31,6 +31,15 @@ const GIF = (() => {
     done(){ return this.buf.subarray(0, this.len); }
   }
 
+  /* LZWの辞書。(prefix<<8)|k を直に引く。
+     使い回すために外に置き、消すときは版番号を進めるだけにする。
+     以前は毎回 100万要素をゼロ埋めしていたが、
+     色数が増えて辞書が埋まりやすくなると、この消去だけで書き出しが分単位になった。 */
+  const LZW_SIZE = 1 << 20;
+  const lzwCode  = new Int32Array(LZW_SIZE);
+  const lzwStamp = new Int32Array(LZW_SIZE);
+  let lzwVersion = 0;
+
   /* GIF-LZW（Acme/GIFEncoder と同じコード幅の上げ方に合わせている） */
   function lzwEncode(out, pixels, minCodeSize){
     const clearCode = 1 << minCodeSize, eoi = clearCode + 1;
@@ -39,7 +48,7 @@ const GIF = (() => {
     let free = clearCode + 2;
     let clearFlag = false;
 
-    const table = new Int32Array(1 << 20);   // (prefix<<8)|k を直に引く。0=空、値は code+1
+    let ver = ++lzwVersion;                  // この版に一致する印だけを有効とみなす
     let acc = 0, accBits = 0;
     const block = new Uint8Array(255);
     let blockLen = 0;
@@ -68,11 +77,14 @@ const GIF = (() => {
     for (let i = 1; i < pixels.length; i++){
       const k = pixels[i];
       const key = (prefix << 8) | k;
-      const v = table[key];
-      if (v !== 0){ prefix = v - 1; continue; }
+      if (lzwStamp[key] === ver){ prefix = lzwCode[key]; continue; }
       writeCode(prefix);
-      if (free < 4096){ table[key] = free + 1; free++; }
-      else { table.fill(0); free = clearCode + 2; clearFlag = true; writeCode(clearCode); }
+      if (free < 4096){
+        lzwStamp[key] = ver; lzwCode[key] = free; free++;
+      } else {
+        ver = ++lzwVersion;                  // 版を進めるだけで辞書を空にできる
+        free = clearCode + 2; clearFlag = true; writeCode(clearCode);
+      }
       prefix = k;
     }
     writeCode(prefix);
@@ -105,15 +117,20 @@ const GIF = (() => {
     return { pts, axis, range, avg:[Math.round(rs/n),Math.round(gs/n),Math.round(bs/n)] };
   }
 
-  function paletteFromSamples(samples, maxColors){
-    if (!samples.length) return [[0,0,0]];
+  /* 分割するのは「色幅 × 画素数」が最大の箱。
+
+     以前は画素数を ∛ で潰していたが、それだと
+     面積は広いのに色幅の狭い領域（髪の陰影のような緩い階調）に色が回らず、
+     そこだけ縞になった。実測で髪の誤差が 0.50、割り当てられた色は82色どまり。
+     画素数をそのまま効かせると 0.27 / 92色まで改善する。 */
+  function medianCut(samples, maxColors){
     let boxes = [boxOf(samples)];
     while (boxes.length < maxColors){
       let bi = -1, best = -1;
       for (let i = 0; i < boxes.length; i++){
         const b = boxes[i];
         if (b.pts.length < 2 || b.range === 0) continue;
-        const s = b.range * Math.cbrt(b.pts.length);
+        const s = b.range * b.pts.length;
         if (s > best){ best = s; bi = i; }
       }
       if (bi < 0) break;
@@ -123,6 +140,37 @@ const GIF = (() => {
       boxes.splice(bi, 1, boxOf(b.pts.slice(0, mid)), boxOf(b.pts.slice(mid)));
     }
     return boxes.map(b => b.avg);
+  }
+
+  /* できたパレットを実データの重心へ寄せ直す（Lloyd法）。
+     箱の平均は「箱の中身の平均」でしかないので、
+     実際にその色が担当する画素の平均に置き直すと誤差が下がる。
+     画素数を効かせたことで小さく鮮やかな部分が粗くなるが、これで戻る。 */
+  const REFINE = 8;
+
+  function refinePalette(pal, samples){
+    let P = pal.map(c => c.slice());
+    const n = P.length;
+    for (let it = 0; it < REFINE; it++){
+      const match = makeMatcher(P);
+      const sr = new Float64Array(n), sg = new Float64Array(n),
+            sb = new Float64Array(n), sc = new Float64Array(n);
+      for (let i = 0; i < samples.length; i++){
+        const p = samples[i];
+        const k = match(p[0], p[1], p[2]);
+        sr[k] += p[0]; sg[k] += p[1]; sb[k] += p[2]; sc[k]++;
+      }
+      for (let k = 0; k < n; k++){
+        if (!sc[k]) continue;                 // 誰も使わない色はそのまま残す
+        P[k] = [Math.round(sr[k]/sc[k]), Math.round(sg[k]/sc[k]), Math.round(sb[k]/sc[k])];
+      }
+    }
+    return P;
+  }
+
+  function paletteFromSamples(samples, maxColors){
+    if (!samples.length) return [[0,0,0]];
+    return refinePalette(medianCut(samples, maxColors), samples);
   }
 
   /* RGBAから色を間引いて拾う。透けている画素はパレットに入れない */
