@@ -137,23 +137,52 @@ const GIF = (() => {
     return out;
   }
 
+  /* 色 → 最も近いパレット添字。
+
+     キャッシュは「出てきた色そのもの」で引く。
+     以前は色を5bit（32段階）に丸めて引いていたが、それだと8段階以内の差が
+     必ず同じ色に潰れ、パレットが255色あってもなだらかな階調が縞になった。
+     （実測：グラデーションで使われた色が51色どまり、平均誤差1.49）
+
+     丸めをやめても、絵に出てくる色の種類はたかが知れているので速度はほぼ変わらない。
+     ノイズのように色数が極端に多い絵だけ遅くなるため、
+     一定を超えたら粗いキャッシュに切り替えて頭打ちにする。 */
+  const ROUGH_AT = 1 << 17;      // 13万色を超えたら丸めに切り替える
+
   function makeMatcher(pal){
-    const cache = new Int16Array(32768).fill(-1);
+    const exact = new Map();
+    let rough = null;
     const n = pal.length;
     const pr = new Int32Array(n), pg = new Int32Array(n), pb = new Int32Array(n);
     for (let i = 0; i < n; i++){ pr[i]=pal[i][0]; pg[i]=pal[i][1]; pb[i]=pal[i][2]; }
-    return (r, g, b) => {
-      const key = ((r>>3)<<10) | ((g>>3)<<5) | (b>>3);
-      const c = cache[key];
-      if (c >= 0) return c;
+
+    const nearest = (r, g, b) => {
       let best = 0, bd = Infinity;
       for (let i = 0; i < n; i++){
         const dr=r-pr[i], dg=g-pg[i], db=b-pb[i];
         const d = dr*dr*3 + dg*dg*4 + db*db*2;
         if (d < bd){ bd = d; best = i; if (!d) break; }
       }
-      cache[key] = best;
       return best;
+    };
+
+    return (r, g, b) => {
+      if (rough){
+        const k = ((r>>3)<<10) | ((g>>3)<<5) | (b>>3);
+        const c = rough[k];
+        if (c >= 0) return c;
+        return (rough[k] = nearest(r, g, b));
+      }
+      const key = (r << 16) | (g << 8) | b;
+      const hit = exact.get(key);
+      if (hit !== undefined) return hit;
+      const v = nearest(r, g, b);
+      if (exact.size >= ROUGH_AT){
+        rough = new Int16Array(32768).fill(-1);   // 色数が多すぎるので丸めに落とす
+      } else {
+        exact.set(key, v);
+      }
+      return v;
     };
   }
 

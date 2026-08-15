@@ -745,8 +745,7 @@ async function buildGif(){
     let idx = cache.get(sig);
     if (!idx){
       const d = paint(k);
-      idx = new Uint8Array(w * h);
-      for (let i = 0, o = 0; i < idx.length; i++, o += 4) idx[i] = match(d[o], d[o + 1], d[o + 2]);
+      idx = GIF.quantize(new Uint8ClampedArray(d.buffer), w, h, pal, match, -1, false);
       cache.set(sig, idx);
       painted++;
       if (painted % 4 === 0){
