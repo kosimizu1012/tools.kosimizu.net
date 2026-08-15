@@ -326,20 +326,35 @@ const GIF = (() => {
       // ローカル色表は「そのコマ限り」で次には引き継がれない。
       // グローバルと違うパレットを使うコマは、毎コマ色表を持たせる必要がある。
       const needLCT = pal !== first;
-      // 添字の意味が同じ（＝前のコマと同じパレット）ときだけ差分が取れる
-      const canDiff = pal === prevPal;
+
+      // パレットが変わっても、同じ添字が同じ色を指しているなら差分にできる。
+      // 静止部分の色をパレットの前半に揃えてあるので、
+      // 背景や文字はパレットが切り替わっても書き直さずに済む。
+      let sameColor = null;
+      if (prevPal && pal !== prevPal){
+        const n = Math.max(pal.length, prevPal.length);
+        sameColor = new Uint8Array(n);
+        for (let i = 0; i < n; i++){
+          const a = pal[i], b = prevPal[i];
+          sameColor[i] = (a && b && a[0] === b[0] && a[1] === b[1] && a[2] === b[2]) ? 1 : 0;
+        }
+      }
+      const canDiff = pal === prevPal || sameColor !== null;
       const bits = tableBits(pal.length + (optimize ? 1 : 0));
       const diffIndex = optimize ? pal.length : -1;
       const minCodeSize = Math.max(2, bits);
 
       let x0 = 0, y0 = 0, bw = w, bh = h, useDiff = false;
 
+      // 「前のコマと同じ画素」＝添字が同じで、かつその添字が同じ色を指していること
+      const keeps = (i, v) => prev[i] === v && (!sameColor || sameColor[v]);
+
       if (optimize && prev && canDiff){
         let minX = w, minY = h, maxX = -1, maxY = -1;
         for (let y = 0; y < h; y++){
           const row = y * w;
           for (let x = 0; x < w; x++){
-            if (cur[row + x] !== prev[row + x]){
+            if (!keeps(row + x, cur[row + x])){
               if (x < minX) minX = x;
               if (x > maxX) maxX = x;
               if (y < minY) minY = y;
@@ -357,7 +372,7 @@ const GIF = (() => {
         const srow = (y0 + y) * w + x0;
         for (let x = 0; x < bw; x++){
           const v = cur[srow + x];
-          sub[n++] = (useDiff && prev[srow + x] === v) ? diffIndex : v;
+          sub[n++] = (useDiff && keeps(srow + x, v)) ? diffIndex : v;
         }
       }
 

@@ -717,9 +717,12 @@ async function buildGif(){
   // 色味の違う絵を1つのパレットで賄うと、どの絵にも色が足りずグラデーションが縞になる。
   // 実測では全コマ共有で255色中155色しか使えず、
   // まとまりごとに分けると221色まで使えて誤差が半分以下になった。
+  // 切り替え中は2枚の絵が同時に映り、しかも混ざり具合がコマごとに変わる。
+  // ひとまとめのパレットでは両方を賄いきれず、表示中のコマより階調が粗くなるので、
+  // 切り替え中だけは1コマずつ専用のパレットにする。
   const groupOf = p.palMode === "shared" ? () => "all" : k => {
     const st = frameState(k, tl, p);
-    return st.t === 0 ? `s${st.a}` : `t${st.a}-${st.b}`;
+    return st.t === 0 ? `s${st.a}` : `t${st.a}-${st.b}-${k}`;
   };
   const groups = new Map();
   for (let k = 0; k < tl.total; k++){
@@ -732,6 +735,7 @@ async function buildGif(){
   await yieldToUI();
   const TARGET = 60000;
   const maxColors = Math.min(255, p.colors);
+
   const palOfGroup = new Map();
   let gi = 0;
   for (const [gk, ks] of groups){
@@ -751,6 +755,7 @@ async function buildGif(){
     els.status.textContent = `色を調べています… ${++gi}/${groups.size}`;
     await yieldToUI();
   }
+
 
   // 描き直して減色する。
   // 表示中は点線の揺れが変わらない限り絵が同じなので、
