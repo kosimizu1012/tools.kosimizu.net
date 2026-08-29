@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>画像切り取りマス | Tools | Kosimizu</title>
+<meta name="description" content="フリマ出品用に写真を正方形へ切り抜き、値札のような文字を載せます。ブラウザ内で完結し、画像は送信されません。">
+<link rel="stylesheet" href="../assets/site.css">
+<link rel="stylesheet" href="../assets/font.css">
+<style>
+
+  :root{
+    --bg:#15161a; --panel:#1e2027; --line:#33363f; --fg:#e8e9ed; --sub:#9aa0ae;
+    --accent:#7aa2ff; --accent2:#ffd479;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",sans-serif;
+    font-size:13px; line-height:1.6;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+
+  main{display:flex; gap:18px; padding:18px; flex:1 1 auto; min-height:0; overflow:hidden}
+  #stage{flex:1 1 460px; min-width:300px; display:flex; flex-direction:column; min-height:0; gap:10px}
+  #panel{
+    width:340px; flex:0 0 340px; overflow-y:auto; overscroll-behavior:contain;
+    padding-right:6px; margin-right:-6px;
+  }
+  #panel::-webkit-scrollbar{width:10px}
+  #panel::-webkit-scrollbar-thumb{background:#3a3e49; border-radius:5px}
+  #panel::-webkit-scrollbar-track{background:transparent}
+
+  #viewWrap{
+    flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center;
+    background:#101116; border:1px solid var(--line); border-radius:10px; padding:12px;
+  }
+  canvas#view{
+    max-width:100%; max-height:100%; object-fit:contain; border-radius:3px;
+    box-shadow:0 6px 24px rgba(0,0,0,.5);
+    touch-action:none; cursor:grab;
+  }
+  canvas#view.dragging{cursor:grabbing}
+  #meta{color:var(--sub); font-size:11px; min-height:16px; flex:0 0 auto}
+
+  /* 画面が狭いときは上下に積む。
+     プレビューは上部に貼り付けたままにして、その下で操作パネルだけを動かす。
+     （全体をスクロールさせると、つまみを触っても結果が見えない） */
+  @media (max-width: 860px){
+    body{height:auto; overflow:auto; display:block}
+    main{display:block; overflow:visible; height:auto; padding:0}
+    #stage{
+      display:block; min-height:0;
+      position:sticky; top:0; z-index:5;
+      background:var(--bg); padding:10px 12px 6px;
+      box-shadow:0 6px 14px rgba(0,0,0,.45);
+    }
+    #viewWrap{padding:6px}
+    canvas#view{max-height:40vh}
+    #meta{margin-top:4px}
+    #panel{width:auto; flex:none; overflow:visible; padding:12px; margin:0; max-height:none}
+  }
+
+  .box{background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:13px; margin-bottom:11px}
+  .box h2{margin:0 0 9px; font-size:12px; color:var(--accent); letter-spacing:.05em}
+  .row{margin-bottom:10px}
+  .row:last-child{margin-bottom:0}
+  .lbl{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:2px}
+  .lbl span:last-child{color:var(--accent2); font-variant-numeric:tabular-nums; font-size:12px}
+  .note{color:var(--sub); font-size:11px; margin-top:2px}
+  .sep{border-top:1px solid var(--line); margin:13px 0 11px}
+  input[type=range]{width:100%; accent-color:var(--accent); margin:0}
+  select,input[type=number],input[type=text],input[type=color],textarea{
+    width:100%; background:#14151a; color:var(--fg); border:1px solid var(--line);
+    border-radius:6px; padding:6px 8px; font-size:12px; font-family:inherit;
+  }
+  textarea{resize:vertical; line-height:1.5}
+  input[type=color]{padding:2px; height:30px}
+  .two{display:flex; gap:8px}
+  .two>*{flex:1}
+  .three{display:flex; gap:8px}
+  .three>*{flex:1}
+  label.ck{display:flex; align-items:center; gap:7px; cursor:pointer}
+  label.ck input{accent-color:var(--accent); margin:0}
+  button{
+    width:100%; padding:8px 11px; border-radius:8px; border:1px solid var(--line);
+    background:#272a33; color:var(--fg); font-size:13px; font-family:inherit; cursor:pointer;
+  }
+  button:hover:not(:disabled){background:#31353f}
+  button:disabled{opacity:.45; cursor:default}
+  button.primary{background:var(--accent); border-color:var(--accent); color:#0d1220; font-weight:600}
+  button.primary:hover:not(:disabled){background:#8fb2ff}
+  #status{margin-top:7px; font-size:11px; color:var(--sub); min-height:16px; text-align:center}
+
+  /* 写真の棚 */
+  #shelf{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin:4px 0 8px;
+    max-height:190px; overflow-y:auto; align-content:start;
+    padding:6px; border:1px dashed var(--line); border-radius:8px; background:#14151a; min-height:74px;
+  }
+  #shelf.over{border-color:var(--accent); background:#232838}
+  #shelf .empty{grid-column:1/-1; color:var(--sub); font-size:11px; text-align:center;
+                align-self:center; padding:16px 6px}
+  .card{position:relative; height:58px; border:1px solid var(--line); border-radius:6px;
+        overflow:hidden; background:#1a1b20; cursor:pointer; padding:0}
+  .card.on{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent)}
+  .card img{width:100%; height:100%; object-fit:cover; display:block}
+  .card .x{
+    position:absolute; top:2px; right:2px; width:18px; height:18px; padding:0; line-height:1;
+    border-radius:4px; background:rgba(0,0,0,.65); border:none; color:#fff; font-size:12px;
+  }
+
+  /* 文字の一覧 */
+  #layers{
+    display:flex; flex-direction:column; gap:5px; margin-bottom:8px;
+    max-height:150px; overflow-y:auto;
+  }
+  #layers .empty{color:var(--sub); font-size:11px; padding:6px 2px}
+  .lay{
+    display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:6px;
+    border:1px solid var(--line); background:#14151a; cursor:pointer; width:100%;
+    font-size:12px; text-align:left;
+  }
+  .lay.on{border-color:var(--accent); background:#232838}
+  .lay .t{flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .lay .u,.lay .d{
+    flex:0 0 auto; width:20px; height:20px; padding:0; line-height:1;
+    background:#272a33; border:1px solid var(--line); border-radius:4px; font-size:10px;
+  }
+
+  a.dl{display:none}
+  #warn{background:#4a2b2b; border:1px solid #7d4646; border-radius:8px; padding:10px 12px;
+        margin:0 0 11px; font-size:12px; display:none}
+  #warn.on{display:block}
+
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <h1><a href="../">Tools</a></h1>
+  <p>画像切り取りマス ／ フリマの出品写真を正方形にして、値札の文字を載せます</p>
+</header>
+
+<nav class="site-nav">
+  <a href="../">Tools</a>
+  <a href="../puru/">画像動かすゾウ</a>
+  <a href="../narabe/">画像並べたらカックイイヤ</a>
+  <a href="./" aria-current="page">画像切り取りマス</a>
+  <a href="https://kosimizu.net/">Kosimizu</a>
+</nav>
+
+<main>
+  <div id="stage">
+    <div id="viewWrap"><canvas id="view" width="900" height="900"></canvas></div>
+    <div id="meta"></div>
+  </div>
+
+  <div id="panel">
+    <div id="warn"></div>
+
+    <div class="box">
+      <h2>プリセット</h2>
+      <div class="row">
+        <select id="presetSel"><option value="">— 保存した設定を選ぶ —</option></select>
+      </div>
+      <div class="row two">
+        <button id="presetSave" type="button">現在の設定を保存</button>
+        <button id="presetDel" type="button">削除</button>
+      </div>
+      <div class="row two">
+        <button id="presetExport" type="button">ファイルに書き出し</button>
+        <button id="presetImport" type="button">ファイルから読み込み</button>
+      </div>
+      <input type="file" id="presetFile" hidden accept="application/json,.json">
+      <div class="note" id="presetInfo"></div>
+      <div class="note">
+        書体・色・大きさ・場所・枠を、文字ごとまるごと覚えます。
+        切り抜きの位置は写真ごとに違うので含みません。
+      </div>
+    </div>
+
+    <div class="box">
+      <h2>写真</h2>
+      <div id="shelf"></div>
+      <div class="two">
+        <button id="addBtn" type="button">写真を追加…</button>
+        <button id="clearBtn" type="button">全部消す</button>
+      </div>
+      <input type="file" id="file" hidden multiple accept="image/*">
+      <div class="note">
+        棚の写真を押すと切り替わります。枠へのドラッグ＆ドロップ、⌘Vでの貼り付けも可。
+        文字はどの写真にも同じものが載るので、まとめて仕上げられます。
+      </div>
+    </div>
+
+    <div class="box">
+      <h2>切り抜き</h2>
+      <div class="row">
+        <div class="lbl"><span>はめ方</span></div>
+        <select id="fitMode">
+          <option value="cover" selected>正方形いっぱいに切り抜く</option>
+          <option value="contain">写真の全体を入れる（余りは背景色）</option>
+        </select>
+      </div>
+      <div class="row">
+        <div class="lbl"><span>拡大率</span><span id="v-zoom">100 %</span></div>
+        <input type="range" id="zoom" min="100" max="400" step="1" value="100">
+        <div class="note">
+          プレビューの上で指を広げる（ピンチ）／ホイールを回しても、このつまみが動きます。
+        </div>
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>横位置</span><span id="v-cropX">0</span></div>
+          <input type="range" id="cropX" min="-50" max="50" step="0.5" value="0">
+        </div>
+        <div>
+          <div class="lbl"><span>縦位置</span><span id="v-cropY">0</span></div>
+          <input type="range" id="cropY" min="-50" max="50" step="0.5" value="0">
+        </div>
+      </div>
+      <div class="note" id="panNote">プレビューを指でなぞっても動かせます。</div>
+      <div class="row three" style="margin-top:10px">
+        <button id="rotL" type="button">⟲ 90°</button>
+        <button id="rotR" type="button">⟳ 90°</button>
+        <button id="cropReset" type="button">戻す</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div class="lbl"><span>背景色</span></div>
+        <input type="color" id="bgColor" value="#ffffff">
+        <div class="note">「全体を入れる」で余った部分と、写真が無いときの色です。</div>
+      </div>
+    </div>
+
+    <div class="box">
+      <h2>文字</h2>
+      <div id="layers"></div>
+      <div class="three">
+        <button id="layerAdd" type="button">追加</button>
+        <button id="layerDup" type="button">複製</button>
+        <button id="layerDel" type="button">削除</button>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="row">
+        <div class="lbl"><span>文言</span></div>
+        <textarea id="tText" rows="2" placeholder="ここに文字を入れます"></textarea>
+        <div class="note">改行できます。</div>
+      </div>
+      <div class="row">
+        <div class="lbl"><span>書体</span></div>
+        <select id="fontSel"></select>
+        <div class="two" style="margin-top:8px">
+          <button id="fontAdd" type="button">フォントを追加…</button>
+          <button id="fontDel" type="button" disabled>削除</button>
+        </div>
+        <input type="file" id="fontFile" hidden accept=".ttf,.otf,.woff,.woff2,.ttc,font/*">
+        <div class="note" id="fontInfo"></div>
+        <div class="note">
+          手持ちのフォントを読み込んで使えます。ファイルはこの端末の中だけに保存され、
+          どこにも送信されません。ブラウザの「Cookieと他のサイトデータ」を消すと消えます。
+        </div>
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>大きさ</span><span id="v-tSize">9.0 %</span></div>
+          <input type="range" id="tSize" min="1" max="40" step="0.5" value="9">
+        </div>
+        <div>
+          <div class="lbl"><span>色</span></div>
+          <input type="color" id="tColor" value="#ffffff">
+        </div>
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>行間</span><span id="v-tLineH">1.20</span></div>
+          <input type="range" id="tLineH" min="0.8" max="2.5" step="0.05" value="1.2">
+        </div>
+        <div>
+          <div class="lbl"><span>揃え</span></div>
+          <select id="tAlign">
+            <option value="left">左</option>
+            <option value="center" selected>中央</option>
+            <option value="right">右</option>
+          </select>
+        </div>
+      </div>
+      <div class="row"><label class="ck"><input type="checkbox" id="tBold" checked> 太字にする</label></div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>横位置</span><span id="v-tX">50.0 %</span></div>
+          <input type="range" id="tX" min="-20" max="120" step="0.5" value="50">
+        </div>
+        <div>
+          <div class="lbl"><span>縦位置</span><span id="v-tY">12.0 %</span></div>
+          <input type="range" id="tY" min="-20" max="120" step="0.5" value="12">
+        </div>
+      </div>
+      <div class="row">
+        <div class="lbl"><span>傾き</span><span id="v-tRot">0°</span></div>
+        <input type="range" id="tRot" min="-45" max="45" step="0.5" value="0">
+      </div>
+      <div class="note">プレビューの文字を直接つかんで動かせます。</div>
+    </div>
+
+    <div class="box">
+      <h2>文字の枠</h2>
+      <div class="row"><label class="ck"><input type="checkbox" id="sOn" checked> 縁を取る（文字のふちどり）</label></div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>太さ</span><span id="v-sW">0.8 %</span></div>
+          <input type="range" id="sW" min="0.1" max="4" step="0.1" value="0.8">
+        </div>
+        <div>
+          <div class="lbl"><span>色</span></div>
+          <input type="color" id="sColor" value="#000000">
+        </div>
+      </div>
+
+      <div class="sep"></div>
+
+      <div class="row"><label class="ck"><input type="checkbox" id="bOn"> 座布団を敷く（文字の下の帯）</label></div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>色</span></div>
+          <input type="color" id="bColor" value="#d8232a">
+        </div>
+        <div>
+          <div class="lbl"><span>濃さ</span><span id="v-bAlpha">100 %</span></div>
+          <input type="range" id="bAlpha" min="0" max="100" step="1" value="100">
+        </div>
+      </div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>横の余白</span><span id="v-bPadX">40 %</span></div>
+          <input type="range" id="bPadX" min="0" max="150" step="1" value="40">
+        </div>
+        <div>
+          <div class="lbl"><span>縦の余白</span><span id="v-bPadY">24 %</span></div>
+          <input type="range" id="bPadY" min="0" max="150" step="1" value="24">
+        </div>
+      </div>
+      <div class="row">
+        <div class="lbl"><span>角丸</span><span id="v-bRad">14 %</span></div>
+        <input type="range" id="bRad" min="0" max="100" step="1" value="14">
+        <div class="note">余白と角丸は、文字の大きさに対する割合です。</div>
+      </div>
+      <div class="row"><label class="ck"><input type="checkbox" id="bbOn"> 座布団に枠線をつける</label></div>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>枠線の太さ</span><span id="v-bbW">0.6 %</span></div>
+          <input type="range" id="bbW" min="0.1" max="3" step="0.1" value="0.6">
+        </div>
+        <div>
+          <div class="lbl"><span>枠線の色</span></div>
+          <input type="color" id="bbColor" value="#ffffff">
+        </div>
+      </div>
+    </div>
+
+    <div class="box">
+      <h2>出力</h2>
+      <div class="row two">
+        <div>
+          <div class="lbl"><span>大きさ</span></div>
+          <select id="outSize">
+            <option value="1080" selected>1080 × 1080</option>
+            <option value="1200">1200 × 1200</option>
+            <option value="1440">1440 × 1440</option>
+            <option value="800">800 × 800</option>
+            <option value="640">640 × 640</option>
+          </select>
+        </div>
+        <div>
+          <div class="lbl"><span>形式</span></div>
+          <select id="outFmt">
+            <option value="jpeg" selected>JPEG</option>
+            <option value="png">PNG</option>
+          </select>
+        </div>
+      </div>
+      <div class="row" id="qualityRow">
+        <div class="lbl"><span>画質</span><span id="v-quality">92</span></div>
+        <input type="range" id="quality" min="60" max="100" step="1" value="92">
+        <div class="note">フリマは写真が何枚も要るので、既定はJPEGにしてあります。</div>
+      </div>
+      <div class="row"><label class="ck"><input type="checkbox" id="guides"> 三分割の目安を出す（保存には写りません）</label></div>
+      <div class="row"><button class="primary" id="savePng" type="button">この1枚を保存</button></div>
+      <div class="row">
+        <button id="saveAll" type="button">棚の写真を全部保存</button>
+        <div class="note">
+          1枚ずつ続けて保存します。ブラウザが「複数のファイルのダウンロード」を尋ねたら許可してください。
+        </div>
+      </div>
+      <div id="status"></div>
+    </div>
+  </div>
+</main>
+
+<a class="dl" id="dl"></a>
+
+<footer class="site-footer">
+  <div class="links">
+    <a href="../">Tools</a>
+    <a href="https://kosimizu.net/">Kosimizu</a>
+    <a href="https://kosimizu.net/privacy.html">Privacy Policy</a>
+  </div>
+  <p>&copy; 2026 Kosimizu. All rights reserved.</p>
+</footer>
+
+<script src="../assets/fontpicker.js"></script>
+<script src="../assets/preset.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

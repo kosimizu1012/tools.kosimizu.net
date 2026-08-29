@@ -86,7 +86,17 @@ const FontPicker = (() => {
   }
 
   function cssFamily(){
-    return `"${familyOf(current)}", "Hiragino Maru Gothic ProN", sans-serif`;
+    return cssFamilyOf(current);
+  }
+
+  /* 文字を何枚も重ねる道具では、1枚ごとに違う書体を使いたい。
+     いま選んでいるものだけでなく、idを指定して引けるようにしておく。 */
+  function cssFamilyOf(id){
+    return `"${familyOf(id)}", "Hiragino Maru Gothic ProN", sans-serif`;
+  }
+  async function ensureFor(id, text){
+    if (!text) return;
+    try { await document.fonts.load(`40px "${familyOf(id)}"`, text); } catch (e){}
   }
 
   /* ---- UI ---- */
@@ -163,7 +173,7 @@ const FontPicker = (() => {
   }
 
   return {
-    init, ensure, cssFamily,
+    init, ensure, cssFamily, cssFamilyOf, ensureFor,
     get id(){ return current; },
     // プリセットで指定された書体が消えている場合は同梱フォントに戻す
     set id(v){
