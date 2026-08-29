@@ -228,14 +228,15 @@ function drawShot(ctx, S, sh){
    ========================================================================= */
 function metrics(ctx, L, S){
   const px = Math.max(1, L.size / 100 * S);
-  ctx.font = `${L.bold ? "bold " : ""}${px}px ${FontPicker.cssFamilyOf(L.fontId)}`;
+  const font = `${L.bold ? "bold " : ""}${px}px ${FontPicker.cssFamilyOf(L.fontId)}`;
+  ctx.font = font;
   const lines = String(L.text == null ? "" : L.text).split("\n");
   const lh = px * L.lineH;
   let w = 0;
   lines.forEach(t => { w = Math.max(w, ctx.measureText(t).width); });
   const padX = px * L.bPadX / 100, padY = px * L.bPadY / 100;
   return {
-    px, lines, lh, w, h: lh * lines.length, padX, padY,
+    px, font, lines, lh, w, h: lh * lines.length, padX, padY,
     boxW: w + padX * 2, boxH: lh * lines.length + padY * 2,
     cx: L.x / 100 * S, cy: L.y / 100 * S
   };
@@ -251,6 +252,25 @@ function roundRect(ctx, x, y, w, h, r){
   ctx.arcTo(x, y + h, x, y, rr);
   ctx.arcTo(x, y, x + w, y, rr);
   ctx.closePath();
+}
+
+/* 縁取りを1枚の絵にまとめるための下書きの紙。
+   出来上がりと同じ大きさで1枚だけ持ち回して使う。 */
+let scratchCanvas = null;
+function scratch(S){
+  if (!scratchCanvas) scratchCanvas = document.createElement("canvas");
+  if (scratchCanvas.width !== S || scratchCanvas.height !== S){
+    scratchCanvas.width = scratchCanvas.height = S;
+  }
+  return scratchCanvas;
+}
+
+function setTextStyle(g, m){
+  g.font = m.font;
+  g.textAlign = "left";
+  g.textBaseline = "middle";
+  g.lineJoin = "round";
+  g.miterLimit = 2;
 }
 
 function drawLayer(ctx, S, L, marked){
@@ -277,26 +297,49 @@ function drawLayer(ctx, S, L, marked){
     ctx.restore();
   }
 
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  ctx.lineJoin = "round";
-  ctx.miterLimit = 2;
-  m.lines.forEach((t, i) => {
-    const lw = ctx.measureText(t).width;
-    const lx = L.align === "left" ? -m.w / 2
-             : L.align === "right" ? m.w / 2 - lw
-             : -lw / 2;
-    const ly = -m.h / 2 + m.lh * (i + 0.5);
-    if (L.sOn && L.sW > 0){
+  setTextStyle(ctx, m);
+  const place = (g, t, i) => {
+    const lw = g.measureText(t).width;
+    return {
+      x: L.align === "left" ? -m.w / 2
+       : L.align === "right" ? m.w / 2 - lw
+       : -lw / 2,
+      y: -m.h / 2 + m.lh * (i + 0.5)
+    };
+  };
+  const strokeAll = g => {
+    g.lineWidth = L.sW / 100 * S * 2;   // 縁は輪郭の内外に半分ずつ乗るので倍で指定する
+    g.strokeStyle = L.sColor;
+    m.lines.forEach((t, i) => { const q = place(g, t, i); g.strokeText(t, q.x, q.y); });
+  };
+
+  /* 縁取りは字ごと・行ごとに引くので、隣り合う縁は必ず重なる。
+     薄くしたいからと globalAlpha を掛けたまま引くと、
+     重なったところだけ二度塗りになって濃く出てしまう。
+     いったん別の紙に不透明で引いて1枚の絵にしてから、
+     まとめて薄くして貼れば、どこも同じ濃さになる。
+     透けさせないとき（100%）は重なっても見た目が変わらないので、そのまま引く。 */
+  if (L.sOn && L.sW > 0 && L.sAlpha > 0){
+    if (L.sAlpha >= 100){
+      strokeAll(ctx);
+    } else {
+      const sc = scratch(S), g = sc.getContext("2d");
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.clearRect(0, 0, S, S);
+      g.translate(m.cx, m.cy);
+      g.rotate(L.rot * Math.PI / 180);
+      setTextStyle(g, m);
+      strokeAll(g);
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = L.sAlpha / 100;
-      ctx.lineWidth = L.sW / 100 * S * 2;   // 縁は輪郭の内外に半分ずつ乗るので倍で指定する
-      ctx.strokeStyle = L.sColor;
-      ctx.strokeText(t, lx, ly);
-      ctx.globalAlpha = 1;
+      ctx.drawImage(sc, 0, 0);
+      ctx.restore();
     }
-    ctx.fillStyle = L.color;
-    ctx.fillText(t, lx, ly);
-  });
+  }
+
+  ctx.fillStyle = L.color;
+  m.lines.forEach((t, i) => { const q = place(ctx, t, i); ctx.fillText(t, q.x, q.y); });
 
   if (marked){
     // 選んでいる1枚の目印。明るい背景でも暗い背景でも見えるよう、
