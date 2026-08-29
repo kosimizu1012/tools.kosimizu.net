@@ -13,8 +13,8 @@ assets/
   site.css                共通の見た目（kosimizu.net の配色に合わせてある）
   gif.js                  共通のGIFエンコーダ
   preset.js               共通のプリセット
-  font.css                同梱フォントの @font-face（自動生成）
-  font/                   同梱フォント本体（unicode-range で分割）
+  font.css                同梱フォントの @font-face（自動生成・複数書体ぶんが入る）
+  font/                   同梱フォント本体（unicode-range で分割）とライセンス原文
   fontpicker.js           書体の切り替えと、利用者フォントの読み込み
 puru/
   index.html              画像動かすゾウ
@@ -90,21 +90,39 @@ python3 make-manifest.py
 
 ### フォント
 
-既定は **Hachi Maru Pop（はちまるポップ）**。SIL Open Font License で、
-再配布が明示的に許諾されています（`assets/font/OFL.txt` に原文を同梱）。
+同梱しているのは2書体です。どちらも再配布が明示的に許諾されています。
 
-日本語フォントは丸ごとだと数MBあるため、**unicode-range で47分割**してあります。
+| 書体 | family | 使う道具 | ライセンス |
+|---|---|---|---|
+| はちまるポップ | `hachimarupop` | 画像動かすゾウ／画像並べたらカックイイヤ | SIL OFL（`assets/font/OFL.txt`） |
+| Rounded-X M+ 1c black | `roundedxmplus` | 画像切り取りマス | M+ FONTS LICENSE（`assets/font/MPLUS_LICENSE.txt`） |
+
+どの書体を並べてどれを既定にするかは道具ごとに違うので、`FontPicker.init` に
+`builtins:["__rxmplus__","__builtin__"]` のように渡します（先頭が既定）。
+省略すると、はちまるポップだけになります。既存の2つは渡していないので、
+書体が増えても見た目も選択肢も変わりません。
+
+日本語フォントは丸ごとだと数MBあるため、**unicode-range で分割**してあります
+（はちまるポップ47分割／Rounded-X M+ 35分割・計1.12MB）。
 ブラウザは実際に使う文字の範囲だけを取りに行くので、
-既定の「今回のご依頼＋@piyotto」なら **5ファイル・247KB** で済みます。
+「今回のご依頼＋@piyotto」なら **5ファイル・247KB** で済みます。
 
-別のフォントに差し替えるときは次を実行してください。
-`assets/font/` と `assets/font.css` が作り直されます。
+書体を足す・作り直すときは次を実行してください。
 
 ```bash
-python3 make-font.py path/to/Font.ttf familyname
+python3 make-font.py path/to/Font.ttf familyname 900
 ```
 
-`familyname` を変えた場合は `assets/fontpicker.js` の `BUILTIN.family` も合わせてください。
+3つ目は、その書体が持っている太さです（Black なら `900`）。書いておくと、
+太字を指定されたときにブラウザが「持っている中で一番近い太さ」としてこの face を選ぶので、
+**偽の太字**（輪郭を太らせる処理）が掛かりません。もともと極太の書体に偽の太字が乗ると、
+線が潰れて読みにくくなります。省略すると 400 扱いになり、太字指定で偽の太字が掛かります。
+
+`assets/font.css` は書きつぶさず、**その書体のぶんだけ差し替え**ます。
+全部を作り直す形にすると、1書体足すたびに全部の元ttfを揃え直すことになるためです。
+
+新しい書体は `assets/fontpicker.js` の `BUILTINS` にも1行足してください
+（`{ id, label, family }`。`family` は `familyname` と同じもの）。
 
 ### 利用者が自分のフォントを追加する
 

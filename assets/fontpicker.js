@@ -3,7 +3,8 @@
 /* =========================================================================
    書体の管理（tools.kosimizu.net）
 
-   既定は同梱の Hachi Maru Pop（SIL OFL）。
+   同梱フォントは複数ある。どれを並べてどれを既定にするかは道具ごとに違うので、
+   init に渡してもらう（省略すると、これまでどおり はちまるポップ だけ）。
    加えて、利用者が自分の持っているフォントを読み込んで使えるようにする。
 
    読み込んだフォントは IndexedDB に入れて次回から自動で復元する。
@@ -17,11 +18,17 @@
 
 const FontPicker = (() => {
   const DB = "tools-fonts", STORE = "fonts";
-  const BUILTIN = { id: "__builtin__", label: "はちまるポップ（同梱）", family: "hachimarupop" };
+  const BUILTINS = [
+    { id: "__builtin__", label: "はちまるポップ（同梱）",        family: "hachimarupop"  },
+    { id: "__rxmplus__", label: "Rounded-X M+ black（同梱）", family: "roundedxmplus" }
+  ];
 
   let userFonts = [];        // { id, label, family, buf }
-  let current = BUILTIN.id;
+  let offered = [BUILTINS[0]];   // この道具で並べる同梱フォント
+  let current = offered[0].id;
   let cfg = null;
+
+  const isBuiltin = id => BUILTINS.some(f => f.id === id);
 
   /* ---- IndexedDB ---- */
   function open(){
@@ -71,10 +78,13 @@ const FontPicker = (() => {
     document.fonts.add(face);
   }
 
+  function has(id){
+    return offered.some(f => f.id === id) || userFonts.some(f => f.id === id);
+  }
+
   function familyOf(id){
-    if (id === BUILTIN.id) return BUILTIN.family;
-    const f = userFonts.find(f => f.id === id);
-    return f ? f.family : BUILTIN.family;
+    const f = BUILTINS.find(f => f.id === id) || userFonts.find(f => f.id === id);
+    return f ? f.family : offered[0].family;
   }
 
   /* いま使う書体で、この文字列を描けるようにする。
@@ -103,13 +113,13 @@ const FontPicker = (() => {
   function renderList(){
     const sel = cfg.els.fontSel;
     sel.innerHTML = "";
-    [BUILTIN, ...userFonts].forEach(f => {
+    [...offered, ...userFonts].forEach(f => {
       const o = document.createElement("option");
       o.value = f.id; o.textContent = f.label;
       sel.appendChild(o);
     });
     sel.value = current;
-    cfg.els.fontDel.disabled = current === BUILTIN.id;
+    cfg.els.fontDel.disabled = isBuiltin(current);
     cfg.els.fontInfo.textContent = userFonts.length
       ? `追加済み ${userFonts.length}件。ブラウザの「Cookieと他のサイトデータ」を消すと消えます。`
       : "手持ちのフォントを追加できます（この端末から出ません）。";
@@ -142,6 +152,11 @@ const FontPicker = (() => {
 
   async function init(c){
     cfg = c;
+    if (Array.isArray(c.builtins) && c.builtins.length){
+      const pick = c.builtins.map(id => BUILTINS.find(f => f.id === id)).filter(Boolean);
+      if (pick.length) offered = pick;
+    }
+    current = offered[0].id;
     // 保存済みの利用者フォントを戻す
     const recs = await dbAll();
     for (const r of recs){
@@ -151,7 +166,7 @@ const FontPicker = (() => {
 
     cfg.els.fontSel.addEventListener("change", () => {
       current = cfg.els.fontSel.value;
-      cfg.els.fontDel.disabled = current === BUILTIN.id;
+      cfg.els.fontDel.disabled = isBuiltin(current);
       cfg.onChange();
     });
     cfg.els.fontAdd.addEventListener("click", () => cfg.els.fontFile.click());
@@ -160,12 +175,12 @@ const FontPicker = (() => {
       e.target.value = "";
     });
     cfg.els.fontDel.addEventListener("click", async () => {
-      if (current === BUILTIN.id) return;
+      if (isBuiltin(current)) return;
       const f = userFonts.find(f => f.id === current);
       if (!f || !confirm(`「${f.label}」を削除しますか？`)) return;
       await dbDel(current);
       userFonts = userFonts.filter(x => x.id !== current);
-      current = BUILTIN.id;
+      current = offered[0].id;
       renderList();
       cfg.els.fontInfo.textContent = `「${f.label}」を削除しました。`;
       cfg.onChange();
@@ -175,13 +190,13 @@ const FontPicker = (() => {
   return {
     init, ensure, cssFamily, cssFamilyOf, ensureFor,
     get id(){ return current; },
-    // プリセットで指定された書体が消えている場合は同梱フォントに戻す
+    // プリセットで指定された書体が消えている場合は既定の同梱フォントに戻す
     set id(v){
-      const ok = v === BUILTIN.id || userFonts.some(f => f.id === v);
-      current = ok ? v : BUILTIN.id;
+      current = has(v) ? v : offered[0].id;
       renderList();
     },
-    has: v => v === BUILTIN.id || userFonts.some(f => f.id === v),
-    list: () => [BUILTIN, ...userFonts].map(f => ({ id: f.id, label: f.label }))
+    get defaultId(){ return offered[0].id; },
+    has,
+    list: () => [...offered, ...userFonts].map(f => ({ id: f.id, label: f.label }))
   };
 })();

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""既定フォントを unicode-range 分割して assets/font/ に書き出す。
+"""同梱フォントを unicode-range 分割して assets/font/ に書き出す。
 
 日本語フォントは丸ごとだと数MBある。全部を1ファイルにすると、
 「今回のご依頼」の6文字を出すためだけに数MBを落とすことになる。
@@ -8,12 +8,21 @@
 @font-face の unicode-range でブラウザに「使う範囲だけ」取りに行かせる。
 短い見出しなら数十KBで済む。
 
+同梱フォントは複数あるので、assets/font.css は「書きつぶす」のではなく
+「その書体のぶんだけ差し替える」。元のttfを手元に揃えていなくても、
+1つだけ作り直せるようにするため。
+
 使い方:
-    python3 make-font.py path/to/Font.ttf FamilyName
+    python3 make-font.py path/to/Font.ttf FamilyName [font-weight]
+
+font-weight は、その書体が持っている太さを書く（例：Black なら 900）。
+書いておくと、太字を指定されたときにブラウザが「持っている中で一番近い太さ」
+としてこの face を選ぶので、偽の太字（輪郭を太らせる処理）が掛からない。
+省略すると 400 扱いになり、太字指定で偽の太字が掛かる。
 """
 import os
+import re
 import sys
-import json
 
 from fontTools import subset
 from fontTools.ttLib import TTFont
@@ -49,9 +58,37 @@ def ranges_of(codepoints):
     )
 
 
+def write_css(path, family, blocks):
+    """font.css のうち、この書体のぶんだけを差し替えて書き戻す。
+
+    ほかの書体の @font-face はそのまま残す。全部を作り直す形にすると、
+    1つ足すたびに全部の元ttfを揃え直さねばならなくなる。
+    """
+    keep, families = [], []
+    if os.path.exists(path):
+        for m in re.finditer(r"@font-face\{.*?\}", open(path, encoding="utf-8").read(), re.S):
+            t = m.group(0)
+            f = re.search(r"font-family:'([^']+)'", t)
+            if f and f.group(1) != family:
+                keep.append(t)
+                if f.group(1) not in families:
+                    families.append(f.group(1))
+    families.append(family)
+
+    head = [
+        "/* 自動生成：make-font.py で作られます。直接編集しないでください。",
+        "   同梱フォントを unicode-range で分割したものです。",
+        "   ブラウザは実際に使う範囲のファイルだけを取りに行きます。",
+        "   収録: " + " / ".join(families) + " */",
+    ]
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(head + keep + blocks) + "\n")
+
+
 def main():
     src = sys.argv[1]
     family = sys.argv[2] if len(sys.argv) > 2 else "sitefont"
+    weight = sys.argv[3] if len(sys.argv) > 3 else ""
     os.makedirs(OUT, exist_ok=True)
 
     have = set(TTFont(src).getBestCmap().keys())
@@ -83,20 +120,15 @@ def main():
         total += size
         faces.append((name, ranges_of(g), size))
 
-    css = [
-        "/* 自動生成：make-font.py で作られます。直接編集しないでください。",
-        f"   {os.path.basename(src)} を unicode-range で分割したものです。",
-        "   ブラウザは実際に使う範囲のファイルだけを取りに行きます。 */",
-    ]
+    blocks = []
     for name, rng, _ in faces:
-        css.append("@font-face{")
-        css.append(f"  font-family:'{family}';")
-        css.append(f"  src:url('font/{name}') format('woff2');")
-        css.append("  font-display:swap;")
-        css.append(f"  unicode-range:{rng};")
-        css.append("}")
-    with open(os.path.join(HERE, "assets", "font.css"), "w", encoding="utf-8") as f:
-        f.write("\n".join(css) + "\n")
+        lines = ["@font-face{", f"  font-family:'{family}';",
+                 f"  src:url('font/{name}') format('woff2');"]
+        if weight:
+            lines.append(f"  font-weight:{weight};")
+        lines += ["  font-display:swap;", f"  unicode-range:{rng};", "}"]
+        blocks.append("\n".join(lines))
+    write_css(os.path.join(HERE, "assets", "font.css"), family, blocks)
 
     print(f"{len(faces)}分割 / 合計 {total/1024/1024:.2f}MB")
     print(f"かな・英数の1つ目: {faces[0][2]/1024:.0f}KB "

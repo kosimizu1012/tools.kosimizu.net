@@ -62,16 +62,23 @@ const FIELDS = {
 const FIELD_IDS = Object.keys(FIELDS);
 const CROP_IDS = ["zoom","cropX","cropY"];
 
+/* 出品用に決めた既定の見た目。
+   実際に使っているプリセット（masu-presets.json の「デフォルト用」）を
+   そのまま持ってきてある。追加した文字もこの見た目で出るので、
+   毎回つまみを合わせ直さずに文言だけ変えれば済む。 */
 function newLayer(over){
   return Object.assign({
     text:"新しい文字", fontId: FontPicker.id,
-    size:9, color:"#ffffff", bold:true, lineH:1.2, align:"center",
+    size:9, color:"#f97171", bold:true, lineH:1.2, align:"center",
     x:50, y:12, rot:0,
-    sOn:true, sW:0.8, sColor:"#000000", sAlpha:100,
-    bOn:false, bColor:"#d8232a", bAlpha:100, bPadX:40, bPadY:24, bRad:14,
+    sOn:true, sW:1.5, sColor:"#ffffff", sAlpha:82,
+    bOn:false, bColor:"#ffffff", bAlpha:100, bPadX:40, bPadY:24, bRad:14,
     bbOn:false, bbColor:"#ffffff", bbW:0.6, bbAlpha:100
   }, over || {});
 }
+
+/* 開いた直後に載っている文字。文言まで含めて既定にしてある。 */
+const FIRST_TEXT = "24時間以内発送\n新品未開封";
 
 /* 版が違うプリセットや、手で直した書き出しファイルが来ても落ちないように、
    欠けている項目は既定値で埋め、数は数として読み直す。 */
@@ -726,7 +733,7 @@ Presets.init({
     if (!Array.isArray(x.layers)) return "";
     layers = x.layers.map(tidyLayer);
     let lost = 0;
-    layers.forEach(L => { if (!FontPicker.has(L.fontId)){ L.fontId = "__builtin__"; lost++; } });
+    layers.forEach(L => { if (!FontPicker.has(L.fontId)){ L.fontId = FontPicker.defaultId; lost++; } });
     sel = layers.length ? Math.min(Math.max(0, x.sel | 0), layers.length - 1) : -1;
     return lost ? `${lost}枚ぶんの書体が見つからないため、同梱フォントに戻しました。` : "";
   },
@@ -743,6 +750,9 @@ Presets.init({
    ========================================================================= */
 (async () => {
   await FontPicker.init({
+    // 値札の文字なので、既定は太い丸ゴシック。
+    // はちまるポップは手書き寄りで、出品写真には強すぎる。
+    builtins: ["__rxmplus__", "__builtin__"],
     els: { fontSel: els.fontSel, fontAdd: els.fontAdd, fontFile: els.fontFile,
            fontDel: els.fontDel, fontInfo: els.fontInfo },
     onChange: () => {
@@ -753,8 +763,7 @@ Presets.init({
     }
   });
 
-  layers = [ newLayer({ text: "美品", size: 11, x: 22, y: 14, rot: -6,
-                        color: "#ffffff", bOn: true, bColor: "#d8232a", sOn: false }) ];
+  layers = [ newLayer({ text: FIRST_TEXT }) ];
   sel = 0;
 
   shelf();
