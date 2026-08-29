@@ -69,7 +69,7 @@ const CROP_IDS = ["zoom","cropX","cropY"];
 function newLayer(over){
   return Object.assign({
     text:"新しい文字", fontId: FontPicker.id,
-    size:9, color:"#f97171", bold:true, lineH:1.2, align:"center",
+    size:9, color:"#eb2d45", bold:true, lineH:1.2, align:"center",
     x:50, y:12, rot:0,
     sOn:true, sW:1.5, sColor:"#ffffff", sAlpha:82,
     bOn:false, bColor:"#ffffff", bAlpha:100, bPadX:40, bPadY:24, bRad:14,
