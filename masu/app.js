@@ -29,7 +29,7 @@ const els = {};
   "tSize","tColor","tBold","tLineH","tAlign","tX","tY","tRot",
   "sOn","sW","sColor","sAlpha",
   "bOn","bColor","bAlpha","bPadX","bPadY","bRad","bbOn","bbColor","bbW","bbAlpha",
-  "outSize","outFmt","quality","qualityRow","savePng","saveAll",
+  "outSize","outFmt","quality","qualityRow","useShare","shareRow","savePng","saveAll",
   "presetSel","presetSave","presetDel","presetExport","presetImport","presetFile","presetInfo"
 ].forEach(id => els[id] = document.getElementById(id));
 
@@ -682,37 +682,103 @@ async function render(sh){
   return { blob, ext: png ? "png" : "jpg" };
 }
 
-function save(blob, name){
-  const url = URL.createObjectURL(blob);
+function download(file){
+  const url = URL.createObjectURL(file);
   els.dl.href = url;
-  els.dl.download = name;
+  els.dl.download = file.name;
   els.dl.click();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 }
 
-els.savePng.addEventListener("click", async () => {
-  const sh = shots[cur];
-  if (!sh){ els.status.textContent = "先に写真を追加してください。"; return; }
-  els.status.textContent = "書き出しています…";
-  await ensureGlyphs();
+async function fileFor(sh, i){
   const r = await render(sh);
-  save(r.blob, `${baseName(sh.name)}-square.${r.ext}`);
-  els.status.textContent = `保存しました（${Math.round(r.blob.size / 1024)} KB）。`;
-});
+  const head = i == null ? "" : String(i + 1).padStart(2, "0") + "-";
+  return new File([r.blob], `${head}${baseName(sh.name)}-square.${r.ext}`,
+                  { type: r.ext === "png" ? "image/png" : "image/jpeg" });
+}
 
-els.saveAll.addEventListener("click", async () => {
-  if (!shots.length){ els.status.textContent = "先に写真を追加してください。"; return; }
-  els.saveAll.disabled = els.savePng.disabled = true;
-  await ensureGlyphs();
-  for (let i = 0; i < shots.length; i++){
-    els.status.textContent = `${i + 1} / ${shots.length} 枚目を書き出しています…`;
-    const r = await render(shots[i]);
-    save(r.blob, `${String(i + 1).padStart(2, "0")}-${baseName(shots[i].name)}-square.${r.ext}`);
-    await new Promise(res => setTimeout(res, 450));   // 続けざまに落とすと取りこぼすブラウザがある
+/* iOS には、ページから写真アプリへ直に書き込む方法が無い。
+   共有シートへ画像を渡すと、そこに「画像を保存」が出て写真アプリに入る。
+   ページから写真アプリへ入れる道はこれだけなので、使えるならこちらを通す。
+   共有シートが無い環境（多くのパソコン）では、これまでどおりファイルとして落とす。 */
+function canShare(files){
+  try {
+    return !!(navigator.share && navigator.canShare && navigator.canShare({ files }));
+  } catch (e){ return false; }
+}
+
+let held = null;   // 共有を断られて持ち越した画像
+
+/* Safari は「指を離してから間が空いた共有」を断る。
+   絵を作るのに一拍かかるぶん、たまにこれに引っかかる。
+   作った画像は捨てずに持っておき、次の一押しでそのまま送る。
+   このとき navigator.share は待たずに呼ぶ（押した流れの中で呼ぶ必要がある）。 */
+function sendFiles(files, what){
+  navigator.share({ files }).then(() => {
+    held = null;
+    els.status.textContent = `${what}を送りました。共有シートの「画像を保存」で写真アプリに入ります。`;
+  }).catch(e => {
+    if (e && e.name === "AbortError"){
+      held = null;
+      els.status.textContent = "やめました。";
+      return;
+    }
+    held = files;
+    els.status.textContent = "もう一度ボタンを押してください（画像はできています）。";
+  });
+}
+
+function deliver(files, what){
+  if (els.useShare.checked && canShare(files)){
+    sendFiles(files, what);
+    return;
   }
-  els.status.textContent = `${shots.length}枚を保存しました。`;
-  els.saveAll.disabled = els.savePng.disabled = false;
-});
+  files.forEach((f, i) => setTimeout(() => download(f), i * 450));  // 続けざまだと取りこぼすブラウザがある
+  const kb = Math.round(files.reduce((a, f) => a + f.size, 0) / 1024);
+  els.status.textContent = `${what}を保存しました（${kb} KB）。`;
+}
+
+function onSave(gather, label){
+  return async () => {
+    const what = typeof label === "function" ? label() : label;
+    if (held){ sendFiles(held, what); return; }   // 持ち越しは待たずに送る
+    if (!shots.length){ els.status.textContent = "先に写真を追加してください。"; return; }
+    els.saveAll.disabled = els.savePng.disabled = true;
+    try {
+      els.status.textContent = "書き出しています…";
+      await ensureGlyphs();
+      deliver(await gather(), what);
+    } catch (e){
+      els.status.textContent = "書き出せませんでした：" + (e && e.message ? e.message : e);
+    } finally {
+      els.saveAll.disabled = els.savePng.disabled = false;
+    }
+  };
+}
+
+els.savePng.addEventListener("click",
+  onSave(async () => [await fileFor(shots[cur])], "1枚"));
+
+/* まとめて送るときは1回の共有シートに全部渡す。
+   1枚ずつ出すと、そのたびに指で選ばせることになる。 */
+els.saveAll.addEventListener("click",
+  onSave(async () => {
+    const files = [];
+    for (let i = 0; i < shots.length; i++){
+      els.status.textContent = `${i + 1} / ${shots.length} 枚目を書き出しています…`;
+      files.push(await fileFor(shots[i], i));
+    }
+    return files;
+  }, () => `${shots.length}枚`));
+
+/* 共有シートを出せない環境では、選ばせても意味が無いので隠す */
+(() => {
+  const probe = [new File([new Blob([1], { type: "image/jpeg" })], "a.jpg", { type: "image/jpeg" })];
+  if (!canShare(probe)){
+    els.useShare.checked = false;
+    els.shareRow.style.display = "none";
+  }
+})();
 
 /* =========================================================================
    プリセット
@@ -724,7 +790,7 @@ Presets.init({
   key: "masu.presets.v1",
   fileName: "masu-presets.json",
   els,
-  skip: [...FIELD_IDS, ...CROP_IDS, "file", "fontFile", "fontSel"],
+  skip: [...FIELD_IDS, ...CROP_IDS, "file", "fontFile", "fontSel", "useShare"],
   ui: { sel: els.presetSel, save: els.presetSave, del: els.presetDel,
         exp: els.presetExport, imp: els.presetImport, file: els.presetFile,
         info: els.presetInfo, dl: els.dl },

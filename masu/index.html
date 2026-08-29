@@ -400,11 +400,18 @@
         <input type="range" id="quality" min="60" max="100" step="1" value="92">
         <div class="note">フリマは写真が何枚も要るので、既定はJPEGにしてあります。</div>
       </div>
+      <div class="row" id="shareRow">
+        <label class="ck"><input type="checkbox" id="useShare" checked> 写真アプリに保存する</label>
+        <div class="note">
+          共有シートが開くので、<b>「画像を保存」</b>を選んでください。写真アプリに入ります。<br>
+          ここを外すと、これまでどおりファイルとして落とします。
+        </div>
+      </div>
       <div class="row"><button class="primary" id="savePng" type="button">この1枚を保存</button></div>
       <div class="row">
         <button id="saveAll" type="button">棚の写真を全部保存</button>
         <div class="note">
-          1枚ずつ続けて保存します。ブラウザが「複数のファイルのダウンロード」を尋ねたら許可してください。
+          全部まとめて1回の共有シートに渡します。写真アプリに一度に入ります。
         </div>
       </div>
       <div id="status"></div>
