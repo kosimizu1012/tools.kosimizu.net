@@ -27,9 +27,9 @@ const els = {};
   "layers","layerAdd","layerDup","layerDel",
   "tText","fontSel","fontAdd","fontFile","fontDel","fontInfo",
   "tSize","tColor","tBold","tLineH","tAlign","tX","tY","tRot",
-  "sOn","sW","sColor",
-  "bOn","bColor","bAlpha","bPadX","bPadY","bRad","bbOn","bbColor","bbW",
-  "outSize","outFmt","quality","qualityRow","guides","savePng","saveAll",
+  "sOn","sW","sColor","sAlpha",
+  "bOn","bColor","bAlpha","bPadX","bPadY","bRad","bbOn","bbColor","bbW","bbAlpha",
+  "outSize","outFmt","quality","qualityRow","savePng","saveAll",
   "presetSel","presetSave","presetDel","presetExport","presetImport","presetFile","presetInfo"
 ].forEach(id => els[id] = document.getElementById(id));
 
@@ -54,9 +54,10 @@ function warn(msg){
 const FIELDS = {
   tText:["text","s"], tSize:["size","n"], tColor:["color","s"], tBold:["bold","b"],
   tLineH:["lineH","n"], tAlign:["align","s"], tX:["x","n"], tY:["y","n"], tRot:["rot","n"],
-  sOn:["sOn","b"], sW:["sW","n"], sColor:["sColor","s"],
+  sOn:["sOn","b"], sW:["sW","n"], sColor:["sColor","s"], sAlpha:["sAlpha","n"],
   bOn:["bOn","b"], bColor:["bColor","s"], bAlpha:["bAlpha","n"], bPadX:["bPadX","n"],
-  bPadY:["bPadY","n"], bRad:["bRad","n"], bbOn:["bbOn","b"], bbColor:["bbColor","s"], bbW:["bbW","n"]
+  bPadY:["bPadY","n"], bRad:["bRad","n"], bbOn:["bbOn","b"], bbColor:["bbColor","s"],
+  bbW:["bbW","n"], bbAlpha:["bbAlpha","n"]
 };
 const FIELD_IDS = Object.keys(FIELDS);
 const CROP_IDS = ["zoom","cropX","cropY"];
@@ -66,9 +67,9 @@ function newLayer(over){
     text:"新しい文字", fontId: FontPicker.id,
     size:9, color:"#ffffff", bold:true, lineH:1.2, align:"center",
     x:50, y:12, rot:0,
-    sOn:true, sW:0.8, sColor:"#000000",
+    sOn:true, sW:0.8, sColor:"#000000", sAlpha:100,
     bOn:false, bColor:"#d8232a", bAlpha:100, bPadX:40, bPadY:24, bRad:14,
-    bbOn:false, bbColor:"#ffffff", bbW:0.6
+    bbOn:false, bbColor:"#ffffff", bbW:0.6, bbAlpha:100
   }, over || {});
 }
 
@@ -167,7 +168,9 @@ const LABELS = {
   tY: v => (+v).toFixed(1) + " %",
   tRot: v => (+v).toFixed(1) + "°",
   sW: v => (+v).toFixed(1) + " %",
+  sAlpha: v => (+v).toFixed(0) + " %",
   bAlpha: v => (+v).toFixed(0) + " %",
+  bbAlpha: v => (+v).toFixed(0) + " %",
   bPadX: v => (+v).toFixed(0) + " %",
   bPadY: v => (+v).toFixed(0) + " %",
   bRad: v => (+v).toFixed(0) + " %",
@@ -256,13 +259,17 @@ function drawLayer(ctx, S, L, marked){
   ctx.translate(m.cx, m.cy);
   ctx.rotate(L.rot * Math.PI / 180);
 
+  /* 中身と枠線で濃さを別に持つ。
+     ひとつの濃さで両方を薄めてしまうと、
+     「写真を透かしつつ枠線だけはっきり残す」ができない。 */
   if (L.bOn){
     ctx.save();
+    roundRect(ctx, -m.boxW / 2, -m.boxH / 2, m.boxW, m.boxH, m.px * L.bRad / 100);
     ctx.globalAlpha = L.bAlpha / 100;
     ctx.fillStyle = L.bColor;
-    roundRect(ctx, -m.boxW / 2, -m.boxH / 2, m.boxW, m.boxH, m.px * L.bRad / 100);
     ctx.fill();
     if (L.bbOn){
+      ctx.globalAlpha = L.bbAlpha / 100;
       ctx.lineWidth = Math.max(0.5, L.bbW / 100 * S);
       ctx.strokeStyle = L.bbColor;
       ctx.stroke();
@@ -281,9 +288,11 @@ function drawLayer(ctx, S, L, marked){
              : -lw / 2;
     const ly = -m.h / 2 + m.lh * (i + 0.5);
     if (L.sOn && L.sW > 0){
+      ctx.globalAlpha = L.sAlpha / 100;
       ctx.lineWidth = L.sW / 100 * S * 2;   // 縁は輪郭の内外に半分ずつ乗るので倍で指定する
       ctx.strokeStyle = L.sColor;
       ctx.strokeText(t, lx, ly);
+      ctx.globalAlpha = 1;
     }
     ctx.fillStyle = L.color;
     ctx.fillText(t, lx, ly);
@@ -305,18 +314,6 @@ function drawLayer(ctx, S, L, marked){
   ctx.restore();
 }
 
-function drawGuides(ctx, S){
-  ctx.save();
-  ctx.strokeStyle = "rgba(255,255,255,.55)";
-  ctx.lineWidth = Math.max(1, S / 900);
-  ctx.setLineDash([S / 60, S / 60]);
-  [1 / 3, 2 / 3].forEach(f => {
-    ctx.beginPath(); ctx.moveTo(S * f, 0); ctx.lineTo(S * f, S); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, S * f); ctx.lineTo(S, S * f); ctx.stroke();
-  });
-  ctx.restore();
-}
-
 function drawScene(ctx, S, sh, opts){
   const o = opts || {};
   ctx.clearRect(0, 0, S, S);
@@ -324,11 +321,10 @@ function drawScene(ctx, S, sh, opts){
   ctx.fillRect(0, 0, S, S);
   if (sh && sh.img) drawShot(ctx, S, sh);
   layers.forEach((L, i) => drawLayer(ctx, S, L, o.mark === i));
-  if (o.guides) drawGuides(ctx, S);
 }
 
 function draw(){
-  drawScene(vctx, PREVIEW, shots[cur], { mark: sel, guides: els.guides.checked });
+  drawScene(vctx, PREVIEW, shots[cur], { mark: sel });
   const sh = shots[cur];
   const S = els.outSize.value;
   els.meta.textContent = sh
